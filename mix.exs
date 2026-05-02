@@ -8,6 +8,7 @@ defmodule BeamDesign.MixProject do
       elixir: "~> 1.19",
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
+      compilers: [:boundary | Mix.compilers()],
       deps: deps(),
       dialyzer: [
         plt_add_apps: [:mix, :ex_unit],
