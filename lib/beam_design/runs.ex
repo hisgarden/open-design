@@ -16,5 +16,5 @@ defmodule BeamDesign.Runs do
       BeamDesign.Skills,
       BeamDesign.Agents
     ],
-    exports: []
+    exports: [Supervisor]
 end

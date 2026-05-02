@@ -7,5 +7,5 @@ defmodule BeamDesign.Agents do
   here per the requirements doc dependencies/assumptions: if any one CLI's
   surface shifts, only its adapter changes.
   """
-  use Boundary, deps: [BeamDesign.Protocol], exports: []
+  use Boundary, deps: [BeamDesign.Protocol], exports: [ClaudeCode, Registry]
 end

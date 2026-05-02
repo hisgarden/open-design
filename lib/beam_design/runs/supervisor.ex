@@ -15,4 +15,16 @@ defmodule BeamDesign.Runs.Supervisor do
 
   @impl true
   def init(:ok), do: DynamicSupervisor.init(strategy: :one_for_one)
+
+  @doc """
+  Start a new run under the dynamic supervisor.
+
+  `opts` must contain `:run_id` (string), `:subscriber` (pid),
+  `:payload` (map with prompt etc.), and may contain `:agent` (string,
+  default "claude-code").
+  """
+  @spec start_run(map()) :: DynamicSupervisor.on_start_child()
+  def start_run(opts) do
+    DynamicSupervisor.start_child(__MODULE__, {BeamDesign.Runs.RunServer, opts})
+  end
 end
