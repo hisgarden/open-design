@@ -67,16 +67,7 @@ defmodule BeamDesign.Agents.DeepInfra do
         json: body,
         headers: headers,
         receive_timeout: 60_000,
-        connect_options: [
-          timeout: 15_000,
-          transport_opts: [
-            cacerts: :public_key.cacerts_get(),
-            verify: :verify_peer,
-            customize_hostname_check: [
-              match_fun: :public_key.pkix_verify_hostname_match_fun(:https)
-            ]
-          ]
-        ],
+        connect_options: connect_options(),
         into: into
       )
 
@@ -94,6 +85,88 @@ defmodule BeamDesign.Agents.DeepInfra do
 
   defp api_key do
     System.get_env("DEEPINFRA_API_KEY") || System.get_env("OD_DEEPINFRA_API_KEY")
+  end
+
+  # Build Finch/Mint connection options honoring HTTPS_PROXY (e.g. the
+  # OneCLI local gateway at localhost:10255 that intercepts outbound
+  # 443 from non-allowlisted processes) and trusting the gateway's CA
+  # from NODE_EXTRA_CA_CERTS or ~/.onecli/gateway/ca.pem when present.
+  defp connect_options do
+    base = [
+      timeout: 15_000,
+      transport_opts: [
+        cacerts: :public_key.cacerts_get() ++ extra_cas(),
+        verify: :verify_peer,
+        customize_hostname_check: [
+          match_fun: :public_key.pkix_verify_hostname_match_fun(:https)
+        ]
+      ]
+    ]
+
+    case parse_https_proxy() do
+      nil ->
+        base
+
+      {scheme, host, port, basic_auth} ->
+        proxy_extra =
+          [
+            proxy: {scheme, host, port, []}
+          ] ++
+            if(basic_auth,
+              do: [proxy_headers: [{"proxy-authorization", "Basic #{basic_auth}"}]],
+              else: []
+            )
+
+        Keyword.merge(base, proxy_extra)
+    end
+  end
+
+  defp parse_https_proxy do
+    case System.get_env("HTTPS_PROXY") || System.get_env("HTTP_PROXY") do
+      nil ->
+        nil
+
+      url ->
+        uri = URI.parse(url)
+        scheme = if uri.scheme == "https", do: :https, else: :http
+        port = uri.port || if(scheme == :https, do: 443, else: 80)
+
+        basic =
+          case uri.userinfo do
+            nil -> nil
+            "" -> nil
+            ui -> Base.encode64(ui)
+          end
+
+        if uri.host && port, do: {scheme, uri.host, port, basic}, else: nil
+    end
+  end
+
+  defp extra_cas do
+    candidates =
+      [
+        System.get_env("NODE_EXTRA_CA_CERTS"),
+        Path.expand("~/.onecli/gateway/ca.pem"),
+        "/tmp/onecli-gateway-ca.pem"
+      ]
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+
+    candidates
+    |> Enum.flat_map(fn path ->
+      case File.read(path) do
+        {:ok, pem} ->
+          pem
+          |> :public_key.pem_decode()
+          |> Enum.flat_map(fn
+            {:Certificate, der, _} -> [der]
+            _ -> []
+          end)
+
+        {:error, _} ->
+          []
+      end
+    end)
   end
 
   @doc """
