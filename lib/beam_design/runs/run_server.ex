@@ -10,7 +10,7 @@ defmodule BeamDesign.Runs.RunServer do
   """
   use GenServer, restart: :transient
 
-  alias BeamDesign.Agents.ClaudeCode
+  alias BeamDesign.Agents.{ClaudeCode, DeepInfra}
 
   defmodule State do
     @moduledoc false
@@ -51,7 +51,7 @@ defmodule BeamDesign.Runs.RunServer do
     }
 
     case dispatch_agent(agent, payload) do
-      {:ok, port} ->
+      {:ok, owner_ref} ->
         send_event(state, "run.started", %{
           run_id: run_id,
           agent: agent,
@@ -59,7 +59,7 @@ defmodule BeamDesign.Runs.RunServer do
           started_at: state.started_at
         })
 
-        {:ok, %{state | port: port}}
+        {:ok, %{state | port: owner_ref}}
 
       {:error, reason} ->
         send_event(state, "run.terminal", %{
@@ -74,14 +74,44 @@ defmodule BeamDesign.Runs.RunServer do
     end
   end
 
+  # DeepInfra streaming events: text chunks then terminal {:agent_done, ...}.
+  def handle_info({:agent_chunk, text}, state) when is_binary(text) do
+    send_event(state, "run.output", %{run_id: state.run_id, kind: "agent", delta: text})
+    {:noreply, state}
+  end
+
+  def handle_info({:agent_done, %{success: success} = result}, state) do
+    terminal_payload =
+      %{
+        run_id: state.run_id,
+        status: if(success, do: "succeeded", else: "failed"),
+        exit: if(success, do: 0, else: 1),
+        ended_at: System.system_time(:millisecond)
+      }
+      |> maybe_put(:error, Map.get(result, :error))
+
+    send_event(state, "run.terminal", terminal_payload)
+    {:stop, :normal, %{state | terminal?: true}}
+  end
+
   defp dispatch_agent("claude-code", payload) do
-    ClaudeCode.start(payload["prompt"], model: payload["model"])
+    case ClaudeCode.start(payload["prompt"], model: payload["model"]) do
+      {:ok, port} -> {:ok, {:port, port}}
+      {:error, _} = err -> err
+    end
+  end
+
+  defp dispatch_agent("deepinfra", payload) do
+    case DeepInfra.start(self(), payload["prompt"], model: payload["model"]) do
+      {:ok, task_pid} -> {:ok, {:task, task_pid}}
+      {:error, _} = err -> err
+    end
   end
 
   defp dispatch_agent(other, _payload), do: {:error, {:unknown_agent, other}}
 
   @impl true
-  def handle_info({port, {:data, {flag, line}}}, %State{port: port} = state) do
+  def handle_info({port, {:data, {flag, line}}}, %State{port: {:port, port}} = state) do
     full_line =
       case flag do
         :eol -> state.line_buffer <> line
@@ -102,7 +132,7 @@ defmodule BeamDesign.Runs.RunServer do
     {:noreply, state}
   end
 
-  def handle_info({port, {:exit_status, status}}, %State{port: port} = state) do
+  def handle_info({port, {:exit_status, status}}, %State{port: {:port, port}} = state) do
     if state.terminal? do
       {:stop, :normal, state}
     else
@@ -117,7 +147,11 @@ defmodule BeamDesign.Runs.RunServer do
     end
   end
 
-  def handle_info({:EXIT, port, _reason}, %State{port: port} = state) do
+  def handle_info({:EXIT, port, _reason}, %State{port: {:port, port}} = state) do
+    {:stop, :normal, state}
+  end
+
+  def handle_info({:EXIT, pid, _reason}, %State{port: {:task, pid}} = state) do
     {:stop, :normal, state}
   end
 

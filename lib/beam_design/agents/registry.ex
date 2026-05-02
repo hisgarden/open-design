@@ -13,7 +13,13 @@ defmodule BeamDesign.Agents.Registry do
   @spec list() :: [%{id: String.t(), kind: String.t(), default_model: String.t() | nil}]
   def list do
     [
-      %{id: "claude-code", kind: "cli", default_model: nil}
+      %{id: "claude-code", kind: "cli", default_model: nil},
+      %{
+        id: "deepinfra",
+        kind: "http",
+        default_model: "meta-llama/Meta-Llama-3.1-8B-Instruct",
+        requires_env: "DEEPINFRA_API_KEY"
+      }
     ]
   end
 end
