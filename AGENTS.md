@@ -10,21 +10,32 @@ The journal lives as markdown files in the maintainer's broader `~/code` worksho
 
 ## Pace layers (Stewart Brand, *How Buildings Learn*)
 
-The single load-bearing architectural rule. Slow layers must outlive fast layers without being ripped out. Cross-layer dependencies are enforced by the [Boundary](https://hexdocs.pm/boundary/) library — `mix compile` fails on a violation.
+The single load-bearing architectural rule. Slow layers must outlive fast layers without being ripped out. Cross-layer dependencies are tracked by the [Boundary](https://hexdocs.pm/boundary/) library — `mix compile` reports forbidden references as warnings.
 
 | Tier | Modules | What it owns | Allowed deps |
 |---|---|---|---|
 | Contract (slowest) | `BeamDesign.Protocol.*` | Channel topics, message envelope shapes, version constants | (none — this layer depends on no internal modules) |
 | Slow | `BeamDesign.Auth.*`, `BeamDesign.Workspace.*`, `BeamDesign.DesignSystems.*`, `BeamDesign.Skills.*`, `BeamDesign.Journal.*` | Workspace config, design-system + skill loaders, journal index, auth token mint/verify | Contract |
 | Fast | `BeamDesign.Runs.*`, `BeamDesign.Agents.*` | Per-run supervised GenServers, agent CLI adapters, provenance writes | Contract, Slow |
-| Web | `BeamDesignWeb.*` | Phoenix Endpoint (loopback only), UserSocket auth handshake, WorkspaceChannel | Contract, Slow, Fast |
+| Web | `BeamDesign.Web.*` | Phoenix Endpoint (loopback only), UserSocket auth handshake, WorkspaceChannel | Contract, Slow, Fast |
+
+Layout note: every layer is nested under `BeamDesign.*` (including `BeamDesign.Web`, not the conventional Phoenix `BeamDesignWeb` sibling). This is deliberate — Boundary's parent/sibling rules require all layers to share a parent namespace for them to be sibling-dependable.
 
 If you need to cross a layer boundary that's not in this table, the design has changed; update this table and the `use Boundary, deps: [...]` declarations together, never one without the other.
 
+### CI gate for boundary violations
+
+`mix compile --warnings-as-errors` does NOT promote Boundary's warnings to compile errors (the flag only catches Elixir's own compiler warnings). Until a follow-up unit adds a stricter check, the CI gate is:
+
+```bash
+mix compile --force 2>&1 | grep -E "forbidden reference|can't be listed as a dependency" && exit 1 || exit 0
+```
+
+This is captured as a follow-up task; the warning visibility itself is enough for local development.
+
 ## Where things live
 
-- `lib/beam_design/` — the daemon's own modules, grouped by pace-layer subsystem.
-- `lib/beam_design_web/` — Phoenix Endpoint, UserSocket, channels. The only network surface.
+- `lib/beam_design/` — the daemon's own modules, grouped by pace-layer subsystem (including `BeamDesign.Web`, the network surface).
 - `config/runtime.exs` — loopback bind address, port, auth token path. Single source of network/security config.
 - `apps_demo_cli/` — throwaway CLI client used to validate the protocol from a real (non-test) consumer. Explicitly not part of the product.
 - `test/` — mirrors `lib/`. Integration tests for cross-layer behavior live alongside the layer they originate from.
