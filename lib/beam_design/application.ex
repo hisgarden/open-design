@@ -19,12 +19,15 @@ defmodule BeamDesign.Application do
   @impl true
   def start(_type, _args) do
     children = [
+      # PubSub before Endpoint so Phoenix can broadcast through it.
+      {Phoenix.PubSub, name: BeamDesign.PubSub},
+      BeamDesign.Auth.Holder,
       BeamDesign.Workspace.Supervisor,
       BeamDesign.DesignSystems.Supervisor,
       BeamDesign.Skills.Supervisor,
       BeamDesign.Journal.Supervisor,
-      BeamDesign.Runs.Supervisor
-      # BeamDesign.Web.Endpoint added in U9
+      BeamDesign.Runs.Supervisor,
+      BeamDesign.Web.Endpoint
     ]
 
     opts = [strategy: :one_for_one, name: BeamDesign.Supervisor]

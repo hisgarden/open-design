@@ -21,5 +21,5 @@ defmodule BeamDesign.Web do
       BeamDesign.Journal,
       BeamDesign.Runs
     ],
-    exports: []
+    exports: [Endpoint, UserSocket]
 end

@@ -6,5 +6,5 @@ defmodule BeamDesign.Auth do
   binds only to loopback, and every mutating protocol surface requires the
   bearer token from the file the launcher writes at startup.
   """
-  use Boundary, deps: [BeamDesign.Protocol], exports: []
+  use Boundary, deps: [BeamDesign.Protocol], exports: [Holder]
 end

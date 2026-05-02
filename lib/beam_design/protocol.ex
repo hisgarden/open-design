@@ -10,5 +10,5 @@ defmodule BeamDesign.Protocol do
   See `AGENTS.md` and the requirements doc R8 / R9 / R10 for why the
   protocol surface is the only externally-visible product surface.
   """
-  use Boundary, deps: [], exports: []
+  use Boundary, deps: [], exports: [Version]
 end
