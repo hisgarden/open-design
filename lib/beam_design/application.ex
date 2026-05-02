@@ -19,8 +19,12 @@ defmodule BeamDesign.Application do
   @impl true
   def start(_type, _args) do
     children = [
-      # Subsystem supervisors arrive in U4. Empty for now so the application
-      # starts cleanly; the supervision tree shape is the unit's deliverable.
+      BeamDesign.Workspace.Supervisor,
+      BeamDesign.DesignSystems.Supervisor,
+      BeamDesign.Skills.Supervisor,
+      BeamDesign.Journal.Supervisor,
+      BeamDesign.Runs.Supervisor
+      # BeamDesign.Web.Endpoint added in U9
     ]
 
     opts = [strategy: :one_for_one, name: BeamDesign.Supervisor]
