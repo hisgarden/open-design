@@ -12,11 +12,17 @@ config :beam_design,
     System.get_env("BEAM_DESIGN_TOKEN_PATH") ||
       Path.expand("~/.beam-design/auth-token"),
 
-  # Loopback bind only (R18). The Endpoint (U9) reads this; no other code path
-  # may bind a network socket without going through the Endpoint.
-  bind_ip: {127, 0, 0, 1},
-  bind_port: String.to_integer(System.get_env("BEAM_DESIGN_PORT") || "4000"),
-
   # Workspace location (U3). Defaults to current working directory; the
   # workspace locator prefers an explicit `.beam-design.toml` if present.
   workspace_dir: System.get_env("BEAM_DESIGN_WORKSPACE_DIR") || File.cwd!()
+
+# Loopback bind only (R18). Endpoint http: pinned to 127.0.0.1; no other
+# code path may bind a network socket without going through the Endpoint.
+config :beam_design, BeamDesign.Web.Endpoint,
+  http: [
+    ip: {127, 0, 0, 1},
+    port: String.to_integer(System.get_env("BEAM_DESIGN_PORT") || "4000")
+  ],
+  secret_key_base:
+    System.get_env("BEAM_DESIGN_SECRET_KEY_BASE") ||
+      :crypto.strong_rand_bytes(48) |> Base.encode64()
