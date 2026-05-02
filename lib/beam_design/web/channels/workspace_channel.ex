@@ -3,15 +3,16 @@ defmodule BeamDesign.Web.WorkspaceChannel do
   The workspace channel — single load-bearing protocol surface between the
   daemon and its clients. Topic shape: `design:v1:<workspace_id>`.
 
-  v1 stub handlers are end-to-end real over the wire (join, welcome push,
-  run.start → synthetic streaming response, error envelopes for unknown
-  events) but the run handler does not yet spawn an agent CLI. Real agent
-  orchestration arrives in U7; until then a synthetic 3-event stream lets
-  clients verify the protocol works.
+  As of U7-claude-code, `run.start` spawns a real `BeamDesign.Runs.RunServer`
+  that wraps the local Claude Code CLI (`claude -p ...`) via OTP Port and
+  streams its parsed stream-json events back as `run.output` events. A
+  `BEAM_DESIGN_SYNTHETIC_RUNS=1` env var keeps the original synthetic
+  stream available for protocol testing without spending agent credits.
   """
   use Phoenix.Channel
 
   alias BeamDesign.Protocol.Version
+  alias BeamDesign.Runs
 
   @impl true
   def join("design:v" <> _ = topic, _payload, socket) do
@@ -42,7 +43,8 @@ defmodule BeamDesign.Web.WorkspaceChannel do
       protocol_version: Version.current(),
       workspace_id: workspace_id,
       capabilities: ["run.start", "run.cancel", "spec.write"],
-      stub_mode: true
+      agents: BeamDesign.Agents.Registry.list(),
+      synthetic_runs: synthetic_runs?()
     })
 
     {:noreply, socket}
@@ -53,21 +55,45 @@ defmodule BeamDesign.Web.WorkspaceChannel do
     {:noreply, socket}
   end
 
+  def handle_info({:run_event, event, payload}, socket) do
+    push(socket, event, payload)
+    {:noreply, socket}
+  end
+
   @impl true
   def handle_in("run.start", payload, socket) do
     case validate_run_start(payload) do
       :ok ->
         run_id = "run_" <> (:crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower))
-        schedule_synthetic_run(run_id, payload)
 
-        {:reply,
-         {:ok,
-          %{
-            run_id: run_id,
-            status: "started",
-            stub_mode: true,
-            note: "synthetic run; real agent CLI orchestration arrives in U7"
-          }}, socket}
+        if synthetic_runs?() do
+          schedule_synthetic_run(run_id, payload)
+
+          {:reply,
+           {:ok,
+            %{
+              run_id: run_id,
+              status: "started",
+              stub_mode: true,
+              note: "synthetic run (BEAM_DESIGN_SYNTHETIC_RUNS=1)"
+            }}, socket}
+        else
+          agent = Map.get(payload, "agent", "claude-code")
+
+          case Runs.Supervisor.start_run(%{
+                 run_id: run_id,
+                 subscriber: self(),
+                 agent: agent,
+                 payload: payload
+               }) do
+            {:ok, _pid} ->
+              {:reply, {:ok, %{run_id: run_id, status: "started", agent: agent, stub_mode: false}},
+               socket}
+
+            {:error, reason} ->
+              {:reply, {:error, %{reason: "run_start_failed", details: inspect(reason)}}, socket}
+          end
+        end
 
       {:error, missing} ->
         {:reply, {:error, %{reason: "invalid_payload", missing: missing}}, socket}
@@ -149,4 +175,6 @@ defmodule BeamDesign.Web.WorkspaceChannel do
   end
 
   defp now_ms, do: System.system_time(:millisecond)
+
+  defp synthetic_runs?, do: System.get_env("BEAM_DESIGN_SYNTHETIC_RUNS") == "1"
 end

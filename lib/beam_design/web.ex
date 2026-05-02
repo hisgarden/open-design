@@ -19,7 +19,8 @@ defmodule BeamDesign.Web do
       BeamDesign.DesignSystems,
       BeamDesign.Skills,
       BeamDesign.Journal,
-      BeamDesign.Runs
+      BeamDesign.Runs,
+      BeamDesign.Agents
     ],
     exports: [Endpoint, UserSocket]
 end
