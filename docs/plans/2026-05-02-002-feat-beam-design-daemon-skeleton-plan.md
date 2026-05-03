@@ -8,7 +8,7 @@ origin: docs/brainstorms/2026-05-02-beam-design-daemon-requirements.md
 
 # feat: BEAM design daemon — v1 skeleton through open-design adapter spike
 
-**Target repo:** new project at `~/code/beam-design-daemon/` (created in U1; the path may be adjusted at U1 time). Repo-relative paths in this plan are relative to that new project root unless they reference `packages/contracts/...`, `apps/web/sidecar/...`, or `apps/web/src/providers/daemon.ts` — those paths are in the open-design fork at `/Users/jwen/workspace/ml/open-design/` and are referenced as anchors for U10–U11.
+**Target repo:** new project at `~/code/beam-design-daemon/` (created in U1; the path may be adjusted at U1 time). Repo-relative paths in this plan are relative to that new project root unless they reference `packages/contracts/...`, `apps/web/sidecar/...`, or `apps/web/src/providers/daemon.ts` — those paths are in the open-design fork at `<open-design-fork>/` (this maintainer's checkout: `/Users/hisgarden/workspace/ml/open-design/`) and are referenced as anchors for U10–U11.
 
 ---
 
@@ -41,7 +41,7 @@ This plan advances every R-ID in the origin doc to "scaffolded and demonstrated 
 
 **Origin actors:** A1 Architect-Maintainer, A2 Agent CLI process, A3 Client UI, A4 Provider API, A5 `~/code` workshop.
 **Origin flows:** F1 Run agent / produce artifact, F2 Distill spec, F3 Surface prior decisions, F4 Add/upgrade client, F5 Recover from crash.
-**Origin acceptance examples:** AE1 (covers R6, R8, R10) — multi-client crash isolation; AE2 (covers R7, R14, R16, R17) — spec anchors survive 6 months; AE3 (covers R18, R19) — loopback + auth deny; AE4 (covers R3, R4) — replace client without daemon change; AE5 (covers R9, R10) — protocol versioning behavior under v1↔v2.
+**Origin acceptance examples:** AE1 (covers R6, R8, R10) — multi-client crash isolation; AE2 (covers R7, R14, R16, R17) — spec anchors survive 6 months; AE3 (covers R18, R19) — loopback + auth deny; AE4 (covers R3, R4) — replace client without daemon change; AE5 (covers R9, R10) — protocol versioning behavior. v1 is the only protocol version that exists in this skeleton; AE5 is demonstrated by rejecting any non-v1 topic prefix (e.g., `design:v0:*`) with a structured "client too old, expected v1" envelope, establishing the rejection path that a future v2 will exercise symmetrically.
 
 ---
 
@@ -85,7 +85,7 @@ This plan advances every R-ID in the origin doc to "scaffolded and demonstrated 
 ### Institutional Learnings
 
 - No existing `docs/solutions/` in the open-design fork; the BEAM project starts with no institutional learnings of its own.
-- The open-design audit (`docs/audits/2026-05-02-bau-design-audit.md`) supplies forward-applied security posture — loopback bind, default-deny auth, no `allow-same-origin` iframe sandboxes.
+- The forward-applied security posture (loopback bind, default-deny auth, no `allow-same-origin` iframe sandboxes) is described inline in Key Technical Decisions and U9. A standalone open-design audit document (`docs/audits/2026-05-02-bau-design-audit.md`) is referenced throughout this plan as the eventual source of truth, but **has not yet been authored**; until it lands, the inline posture in U9 is authoritative.
 
 ### External References
 
@@ -390,7 +390,7 @@ Units are grouped into four phases for readability. The U-IDs are stable across 
 **Execution note:** Test-first. Write the failing tests for bind address, file mode, and 401-on-bad-token before implementing.
 
 **Patterns to follow:**
-- The forward-applied posture from `docs/audits/2026-05-02-bau-design-audit.md` (in the open-design fork) — same shape, ported to Elixir.
+- The forward-applied posture described in Key Technical Decisions and the inline approach above — same shape, ported to Elixir. (When `docs/audits/2026-05-02-bau-design-audit.md` lands in the open-design fork, treat it as the upstream source of truth; until then, this unit's approach is authoritative.)
 
 **Test scenarios:**
 - Happy path: token file exists at the configured path with mode `0o600`.
@@ -426,7 +426,7 @@ Units are grouped into four phases for readability. The U-IDs are stable across 
 - Test: `test/beam_design/workspace/locator_test.exs`
 
 **Approach:**
-- Workspace state held in a single GenServer (one workspace per daemon for v1; multi-workspace deferred). Future-flexibility note: the GenServer's identity is `{:via, Registry, ...}` so multi-workspace is a Registry change later, not a rewrite.
+- Workspace state held in a single GenServer registered with a plain atom name (`name: BeamDesign.Workspace`) — one workspace per daemon for v1; multi-workspace deferred. When multi-workspace becomes a real requirement, swap the registration to `{:via, Registry, ...}` and update the supervisor — a localized change, not a rewrite. Pre-applying the Registry indirection now would add lookup cost and a Registry supervisor child without delivering any v1 requirement.
 - The journal-must-be-under-`~/code` constraint is a soft warning, not a hard error — log loudly but allow override (the maintainer might have an unusual layout).
 
 **Execution note:** Test-first.
@@ -449,7 +449,7 @@ Units are grouped into four phases for readability. The U-IDs are stable across 
 
 - U5. **Phoenix Channel protocol v1**
 
-**Goal:** A single channel under topic `design:v1:<workspace>` accepting the message envelopes sketched in High-Level Technical Design. Stub handlers reply with structured error events (no real run/journal/spec behavior yet — that lands in U6, U7, U8). The channel is the load-bearing slow contract per origin R8.
+**Goal:** A single channel under topic `design:v1:<workspace_id>` accepting the message envelopes sketched in High-Level Technical Design. The `<workspace_id>` segment is a stable identifier (e.g., the workspace directory's base name or an explicit `id` from the workspace config) — the same workspace the on-disk directory under `~/code/` represents. For v1 the daemon serves exactly one workspace, so exactly one topic suffix is valid; the segment exists in the topic shape so multi-workspace later is a config change, not a protocol change. Stub handlers reply with structured error events (no real run/journal/spec behavior yet — that lands in U6, U7, U8). The channel is the load-bearing slow contract per origin R8.
 
 **Requirements:** R8, R9, R10, R20, R21
 
@@ -746,8 +746,72 @@ Units are grouped into four phases for readability. The U-IDs are stable across 
 
 - **Origin document:** [docs/brainstorms/2026-05-02-beam-design-daemon-requirements.md](../brainstorms/2026-05-02-beam-design-daemon-requirements.md)
 - Open-design audit (forward-applied security posture): `docs/audits/2026-05-02-bau-design-audit.md`
-- Companion JS-side remediation plan (work that makes open-design a good client of this daemon): `docs/plans/2026-05-02-001-fix-bau-design-remediation-plan.md`
+- Companion JS-side remediation plan (work that makes open-design a good client of this daemon): expected at `docs/plans/2026-05-02-001-fix-bau-design-remediation-plan.md` — **not yet authored**. References to its U1–U10 elsewhere in this plan (`fix/bau-design-remediation` branch) point to work that is anticipated but not in this branch.
 - Open-design contract surface (anchor for U11 translation): `packages/contracts/src/`
 - Open-design web sidecar (anchor for U11): `apps/web/sidecar/`
 - Open-design daemon provider (target shape for U11 SSE translation): `apps/web/src/providers/daemon.ts`
 - External: Phoenix Channels (`hexdocs.pm/phoenix/channels.html`), OTP Application/Supervisor docs (`hexdocs.pm/elixir/`), Boundary library (`hexdocs.pm/boundary/`), `:file_system` Hex package.
+
+---
+
+## Deferred / Open Questions
+
+### From 2026-05-03 review
+
+This section captures findings from a multi-persona document review (coherence, feasibility, product-lens, security-lens, scope-guardian, adversarial) that the maintainer should weigh before — or at — the corresponding implementation unit. Each entry names the unit it touches, the concrete concern, and a recommended direction. Entries are decisions, not bugs: applying or rejecting them is the maintainer's call.
+
+Factual fixes (wrong absolute path, dangling references to non-existent audit/companion-plan docs, AE5 v0/v2 inconsistency, premature `{:via, Registry}` indirection in U3, workspace terminology in U5) were applied in the same review pass and are not listed here.
+
+#### A. U11 adapter scope is wider than the plan describes
+
+The current open-design web sidecar (`apps/web/sidecar/server.ts`) is a transparent byte-for-byte HTTP proxy with no per-route logic. The actual `/api/runs` handler lives in `apps/daemon/src/runs.ts`. Three concrete consequences for U11:
+
+- **A1. Sidecar must gain route-aware branching.** "Adapter lives in sidecar" understates the change. To intercept one route the sidecar needs path-discriminating logic that, when `BEAM_DAEMON_URL` is set and the path matches, hands off to `beam-adapter.ts`, which must synthesize a chunked SSE response from a WebSocket subscription. *Recommendation:* expand U11's Approach to acknowledge this and add `apps/web/sidecar/server.ts` as a non-trivial modification rather than a flag-gated wrapper.
+- **A2. The "POST /api/runs" spike actually requires three coupled endpoints.** `apps/web/src/providers/daemon.ts` makes three calls per run: `POST /api/runs` (create), `GET /api/runs/:id/events` (SSE stream with `Last-Event-Id` reattach), `POST /api/runs/:id/cancel`. Without all three, U11 cannot demonstrate "streams its output" end-to-end and AE4 evidence is weaker than claimed. *Recommendation:* either expand U11 to cover the trio, or narrow the spike's claim to "one-shot create + auth handshake" and accept that AE4 is partially demonstrated.
+- **A3. Channel envelope is missing a per-event sequence id.** `apps/web/src/providers/daemon.ts` honours `Last-Event-Id` for resume-after-disconnect; the U5 `run.output` envelope only carries `{run_id, delta, kind}`. The adapter cannot preserve resume semantics without a daemon-side `seq` (or `event_id`) field. *Recommendation:* add `seq` to the U5 `run.output` envelope, OR document explicitly that v1 does not support resume-after-disconnect through the BEAM adapter and the React reconnect path will degrade.
+- **A4. Multiplexing model unspecified.** "Single shared WebSocket" + per-HTTP-request SSE responses requires a routing layer the plan never names: which Channel `run.output` event flows to which open SSE response, what happens when two React tabs hit the same daemon, recovery if the shared WebSocket disconnects mid-SSE. *Recommendation:* specify the multiplexing model in U11 (per-HTTP-request subscription keyed by `run_id` or client `ref`, with cleanup on HTTP disconnect).
+- **A5. Phoenix Channel framing in Node is not pre-validated.** The "JS friendliness" rationale rests on `phoenix.js`, but `phoenix.js` is browser-shaped. Server-side framing in Node may need a different library (`@geekjuice/phoenix-channels`, raw `ws`, hand-rolled). *Recommendation:* before U1, run a 1-hour spike — instantiate phoenix.js or a candidate library in a Node process and confirm the framing works server-side; reflect the finding in U11.
+
+#### B. Security commitments to make at plan level (not defer to U7)
+
+The plan explicitly defers env-var passthrough, agent-CLI argv shape, and provider-API-key handling to "implementation time." All three are policy decisions, not implementation details, and the right place to commit to them is the plan.
+
+- **B1. Env-var allowlist for Port-spawned agent CLIs.** The daemon process inherits the full shell environment (including any `ANTHROPIC_API_KEY`, `AWS_*`, etc.) and forwards it verbatim to every Port spawn unless told otherwise. *Recommendation:* commit at plan level to an explicit allowlist (e.g., `PATH`, `HOME`, `TERM`, `LANG`); everything else is stripped before spawn. The `Agents.<adapter>.ex` argv-builder is the natural enforcement point. Add a U7 test scenario asserting only allowlisted vars reach the spawned process.
+- **B2. `spec.write` path canonicalization.** "Path is rejected if outside the journal directory" is necessary but not sufficient — `journal/../../../.ssh/authorized_keys` defeats prefix-only checks; symlinks defeat naive resolution. *Recommendation:* in U8, canonicalize via `Path.expand/1` and compare against the resolved (not configured) journal root. Add test scenarios for `../`-traversal and for symlinks pointing outside the journal dir.
+- **B3. Provenance/output content not logged with secrets.** Secrets that reach the agent CLI subprocess (provider API keys) must never appear in `provenance.json` or in `run.output` deltas (e.g., from accidental CLI debug output that echoes env). *Recommendation:* add to U7's Approach: provenance writers redact known-sensitive env-var names from any logged argv/env summary, and `run.output` is not scanned (the per-line cap below is the only mechanical guard).
+- **B4. `run.output` per-line byte cap.** No cap means a misbehaving CLI emitting one giant un-newlined line is a memory pressure vector and a Channel-broadcast-too-large vector. *Recommendation:* commit to a per-line cap in U7 (e.g., 64 KB) that truncates and emits a `run.output` with `kind: "truncated"` rather than crashing the RunServer.
+- **B5. Agent CLI binary path resolution.** Currently implicit (PATH lookup at exec time). A compromised PATH entry can substitute a malicious binary. *Recommendation:* in `agents/registry.ex`, resolve the CLI to an absolute path at run-start and verify against an allowlist, not at exec time.
+- **B6. Markdown body passthrough provenance tagging.** Frontmatter parsing is daemon-side; the body is forwarded verbatim with sandboxing delegated to clients (R20). A poisoned `DESIGN.md` reaches every connected client. *Recommendation:* tag passthrough content with `source: "workspace_file"` (or similar) in the channel envelope so clients can enforce context-appropriate rendering policies. The U11 adapter is one such client and should be confirmed at design time, not implementation time, not to render the body as trusted HTML.
+- **B7. Token rotation / client reconnect.** Token regenerates on every daemon restart. A long-running adapter's reconnect attempt with the old token fails permanently until the JS sidecar itself restarts — a self-DoS in the most common dev operation. *Recommendation:* either (a) write the token file atomically (temp-then-rename) and persist across restarts unless missing, or (b) require clients to re-read the token file on reconnect and document the expected error envelope when the file changed. Specify a U11 test scenario for "adapter reconnects after daemon restart."
+
+#### C. Scope simplifications worth weighing
+
+- **C1. Boundary library for U2 may be premature.** Boundary's value accrues to multi-contributor codebases or codebases with drift; this is a sole-maintainer greenfield with stub layers. *Recommendation:* defer Boundary to a follow-up unit; for v1 document the layer rules in `AGENTS.md` as a naming convention and rely on directory structure. Re-introduce Boundary when a second contributor or the first inter-layer violation appears.
+- **C2. U10 vs U11 protocol-validation overlap.** Both units claim to "validate the protocol is real." If U10's CLI exercises every channel handler, U11 is incremental open-design-integration work, not protocol validation. Conversely, if U11 is the target client, the channel test suite plus U11 may suffice. *Recommendation:* (A) keep U10, defer U11 to a follow-up open-design fork plan; or (B) drop U10 as redundant and treat U5's channel test suite as the non-UI protocol validator.
+- **C3. `apps_demo_cli/` as a separate Mix project.** Two dependency graphs, two `mix deps.get` invocations, separate escript build for explicitly throwaway code. *Recommendation:* replace with a Mix task (`mix beam_design.demo list_skills`) in `lib/mix/tasks/` that shares the main dep graph, OR a `test/integration/channel_smoke_test.exs` using `Phoenix.ChannelTest`. Same protocol coverage, no extra project infrastructure.
+- **C4. `Fs.Watcher` shared abstraction with two consumers.** Building a wrapper around `:file_system` for two consumers (DesignSystems, Journal) when the underlying library already handles supervision is premature generalization. *Recommendation:* inline `:file_system` child specs into each subsystem's supervisor; extract `Fs.Watcher` only when a third consumer or a divergent supervision policy appears.
+
+#### D. Adversarial design questions
+
+- **D1. ETS journal index rebuild on supervisor restart blanks the index transiently.** "Sub-second at expected scale" is unsourced; the channel's read behavior during the rebuild window is unspecified. *Recommendation:* define explicit "index-warming" behavior (e.g., reply with `{:error, :index_warming}` or block joins until ready); measure rebuild time against a 10K-entry fixture in U8's tests and either back the assumption with the number or relax it.
+- **D2. Port `:line` mode assumes line-terminated agent CLI output.** Modern agent CLIs emit token-by-token streaming, ANSI escapes, and partial lines. With `:line`, the Port silently coalesces or truncates until a newline arrives — exactly the streaming UX U11 is supposed to validate. The fake-CLI happy-path test ("shell script that prints lines") avoids this failure mode. *Recommendation:* before U7 lands, run a smoke test against the real Claude Code CLI with `:line`; if streaming is broken, switch to `:stream` with a buffer-and-flush GenServer or `{:packet, ...}`. Add a U7 test using a fake CLI that emits partial-line bytes and assert prompt streaming.
+- **D3. Anchor validation in `spec.write` inverts AE2's durability promise.** Strict validation ("anchors must reference an existing `runs/<run_id>/provenance.json`") means a spec becomes un-writable the moment one provenance directory is pruned, archived, or moved. The journal — supposed to be the durable record — fails to accept entries that reference any pruned run. *Recommendation:* downgrade anchor validation to a warning at write time; let writes succeed even when an anchor cannot be resolved, and resolve anchors lazily at read time. Provenance is a soft reference, not a hard foreign key.
+- **D4. Workspace-must-be-under-`~/code` as soft warning contradicts R7.** R7 establishes `~/code` as load-bearing identity (Shape C); U3 demotes the constraint to a warning. Either R7 is decorative or U3 is too lenient — not both. *Recommendation:* upgrade to a hard error with an explicit override flag (`--allow-non-workshop-journal`) so the override is intentional, OR document in Key Technical Decisions that R7 is interpreted as "recommended, not required" and adjust AE2's reasoning.
+- **D5. Boundary cannot enforce dynamic dispatch, IPC, or shared ETS.** A Slow GenServer can `send/2` to a Fast process freely; cross-layer ETS sharing is invisible to Boundary; `apply/3` defeats it. *Recommendation:* explicitly list these categories as out-of-scope for layer enforcement (or add complementary discipline, e.g., a Registry-based seam for cross-layer process calls). Don't claim "Boundary enforces the layers" — it enforces the static-call subset of the layers.
+
+#### E. Product / strategy questions
+
+- **E1. Why a separate BEAM daemon vs hardening the JS daemon?** The premise that pace-layered architecture and crash isolation require a new BEAM project is inherited from the origin doc and not re-examined at the plan level. For a sole maintainer, attention is the binding constraint. *Recommendation:* add a short "Why a separate daemon" subsection to Problem Frame naming the specific properties (supervision, hot-reload, channel multiplexing) that justify the new stack and explicitly accounting for the JS-daemon work being deferred.
+- **E2. What's the daemon's commitment between U11 landing and the full open-design port?** The plan ships a daemon whose only consumer (post-U11) is a one-route spike plus a throwaway CLI. *Recommendation:* add an exit criterion — either a named follow-up plan with timeline, or an explicit "park if X" criterion — so the daemon does not become an orphaned subsystem if attention shifts.
+- **E3. Attention budget trade-off vs JS-daemon roadmap.** Risks table notes BEAM unfamiliarity but not the inverse: the JS daemon's roadmap stalling because the maintainer is in BEAM-land. *Recommendation:* add a Risks row acknowledging this with a sequencing rule (e.g., "JS-side audit P0/P1 fixes land before U7 in this project").
+- **E4. R13's "1–2 weeks" timeline ambiguous.** Does it apply to the U10–U11 spike or to full integration? Deferred-to-Follow-Up explicitly defers full integration. *Recommendation:* clarify R13 in the Requirements section — either it's "1–2 weeks to spike validation" (current state, mostly true) or it's the original "1–2 weeks to full open-design replacement" (untrue, since Deferred to Follow-Up moves the full port out of v1).
+
+#### F. Coherence advisories (low priority)
+
+- **F1. U3 vs U8 path validation overlap.** U3 validates the journal directory lives under `~/code`; U8 validates `spec.write` paths stay inside the journal directory. Either may assume the other's check is comprehensive. *Recommendation:* state explicitly in U8 that path validation is independent of U3 (since the journal directory could change between daemon start and `spec.write` if config-reload ever lands).
+- **F2. Agent CLI adapter scope undefined beyond Claude Code.** U7 ships one adapter (Claude Code) and defers "other agents" without naming them. *Recommendation:* add a one-line note in U7 listing the deferred adapters (Codex, Copilot, Pi, ACP per the origin's R5) and the follow-up plan (or "TBD" if none exists) so a reader is not surprised.
+
+#### G. Reliability gap worth confirming as a fix
+
+- **G1. U6/U8 store init must do an explicit on-start full scan.** The plan asserts (in System-Wide Impact) that "supervision restart rebuilds them from disk via the watcher's initial scan," but `:file_system` does not buffer events fired during the restart window. Without an explicit `init/1` full directory walk, the post-restart store is empty until the next save event — a silent partial-availability failure. *Recommendation:* add an Approach bullet to both U6 and U8: "On `init/1`, the store/indexer performs a full scan of the watched directory and populates ETS before subscribing to `:file_system` events." This is mechanical and likely safe to apply directly; surfaced here for visibility.
+
