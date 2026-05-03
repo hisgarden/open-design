@@ -8,6 +8,17 @@ A long-running local Elixir/OTP daemon that owns the slow layers of an architect
 
 The journal lives as markdown files in the maintainer's broader `~/code` workshop. The daemon indexes them; it does not own their storage.
 
+## MVP Definition of Done (held until both met)
+
+The repo stays local-only until BOTH:
+
+1. **U6 demonstrated** — `BeamDesign.DesignSystems.Loader` and `BeamDesign.Skills.Loader` read a real workspace's `design-systems/` and `skills/` directories, serve them through the channel, and hot-reload on disk change. The welcome envelope advertises actual content, not empty arrays.
+2. **A real (non-spike) frontend driving the daemon end-to-end.** The Node script `scripts/beam-spike.mjs` in the open-design fork is debug scaffolding by design and does NOT count. Per requirement R13, the intended demonstrator is the existing open-design React app driving the daemon as its backend (full U11 sidecar adapter). A new minimal first-party web UI also qualifies if explicitly chosen.
+
+Reasoning: the project is "useful" when the maintainer can do real design work against it, not when the wire protocol works. Real loaders + real UI prove user value, not architectural correctness.
+
+After both ship, re-evaluate: push to a remote (public or private), or hold longer.
+
 ## Pace layers (Stewart Brand, *How Buildings Learn*)
 
 The single load-bearing architectural rule. Slow layers must outlive fast layers without being ripped out. Cross-layer dependencies are tracked by the [Boundary](https://hexdocs.pm/boundary/) library — `mix compile` reports forbidden references as warnings.
