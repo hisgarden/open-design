@@ -7,5 +7,7 @@ defmodule BeamDesign.DesignSystems do
   files. Hot-reloads on disk change; broadcasts `design_systems.changed`
   through the channel layer.
   """
-  use Boundary, deps: [BeamDesign.Protocol, BeamDesign.Workspace], exports: []
+  use Boundary,
+    deps: [BeamDesign.Protocol, BeamDesign.Workspace],
+    exports: [Loader, Parser, Parser.DesignSystem]
 end

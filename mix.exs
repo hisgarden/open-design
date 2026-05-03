@@ -35,6 +35,7 @@ defmodule BeamDesign.MixProject do
       {:jason, "~> 1.4"},
       {:file_system, "~> 1.0"},
       {:req, "~> 0.5"},
+      {:yaml_elixir, "~> 2.9"},
       {:boundary, "~> 0.10", runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev], runtime: false}

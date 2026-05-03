@@ -6,5 +6,7 @@ defmodule BeamDesign.Skills do
   markdown-driven artifact recipes (`SKILL.md` + supporting markdown).
   Hot-reloads on disk change; broadcasts `skills.changed`.
   """
-  use Boundary, deps: [BeamDesign.Protocol, BeamDesign.Workspace], exports: []
+  use Boundary,
+    deps: [BeamDesign.Protocol, BeamDesign.Workspace],
+    exports: [Loader, Parser, Parser.Skill]
 end

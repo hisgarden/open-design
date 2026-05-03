@@ -11,7 +11,7 @@ defmodule BeamDesign.Skills.Supervisor do
   @impl true
   def init(:ok) do
     children = [
-      {BeamDesign.Skills.Stub, []}
+      BeamDesign.Skills.Loader
     ]
 
     Supervisor.init(children, strategy: :one_for_one)

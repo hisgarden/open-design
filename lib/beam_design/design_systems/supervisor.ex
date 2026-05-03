@@ -13,7 +13,7 @@ defmodule BeamDesign.DesignSystems.Supervisor do
   @impl true
   def init(:ok) do
     children = [
-      {BeamDesign.DesignSystems.Stub, []}
+      BeamDesign.DesignSystems.Loader
     ]
 
     Supervisor.init(children, strategy: :one_for_one)

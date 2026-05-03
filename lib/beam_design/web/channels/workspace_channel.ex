@@ -11,8 +11,11 @@ defmodule BeamDesign.Web.WorkspaceChannel do
   """
   use Phoenix.Channel
 
+  alias BeamDesign.DesignSystems
   alias BeamDesign.Protocol.Version
   alias BeamDesign.Runs
+  alias BeamDesign.Skills
+  alias BeamDesign.Workspace.Config
 
   @impl true
   def join("design:v" <> _ = topic, _payload, socket) do
@@ -39,14 +42,38 @@ defmodule BeamDesign.Web.WorkspaceChannel do
 
   @impl true
   def handle_info({:after_join, workspace_id}, socket) do
+    Phoenix.PubSub.subscribe(BeamDesign.PubSub, DesignSystems.Loader.topic())
+    Phoenix.PubSub.subscribe(BeamDesign.PubSub, Skills.Loader.topic())
+
     push(socket, "welcome", %{
       protocol_version: Version.current(),
       workspace_id: workspace_id,
-      capabilities: ["run.start", "run.cancel", "spec.write"],
+      capabilities: [
+        "run.start",
+        "run.cancel",
+        "spec.write",
+        "design_systems.list",
+        "design_systems.get",
+        "skills.list",
+        "skills.get"
+      ],
       agents: BeamDesign.Agents.Registry.list(),
+      design_systems_count: DesignSystems.Loader.count(),
+      skills_count: Skills.Loader.count(),
+      workspace_dir: Config.workspace_dir(),
       synthetic_runs: synthetic_runs?()
     })
 
+    {:noreply, socket}
+  end
+
+  def handle_info({:design_systems_changed, payload}, socket) do
+    push(socket, "design_systems.changed", payload)
+    {:noreply, socket}
+  end
+
+  def handle_info({:skills_changed, payload}, socket) do
+    push(socket, "skills.changed", payload)
     {:noreply, socket}
   end
 
@@ -108,8 +135,54 @@ defmodule BeamDesign.Web.WorkspaceChannel do
     {:reply, {:error, %{reason: "not_yet_implemented", unit: "U8"}}, socket}
   end
 
+  def handle_in("design_systems.list", _payload, socket) do
+    items =
+      DesignSystems.Loader.list()
+      |> Enum.map(&design_system_summary/1)
+
+    {:reply, {:ok, %{items: items, total: length(items)}}, socket}
+  end
+
+  def handle_in("design_systems.get", %{"id" => id}, socket) do
+    case DesignSystems.Loader.get(id) do
+      {:ok, ds} -> {:reply, {:ok, design_system_full(ds)}, socket}
+      :error -> {:reply, {:error, %{reason: "not_found", id: id}}, socket}
+    end
+  end
+
+  def handle_in("skills.list", _payload, socket) do
+    items =
+      Skills.Loader.list()
+      |> Enum.map(&skill_summary/1)
+
+    {:reply, {:ok, %{items: items, total: length(items)}}, socket}
+  end
+
+  def handle_in("skills.get", %{"id" => id}, socket) do
+    case Skills.Loader.get(id) do
+      {:ok, sk} -> {:reply, {:ok, skill_full(sk)}, socket}
+      :error -> {:reply, {:error, %{reason: "not_found", id: id}}, socket}
+    end
+  end
+
   def handle_in(unknown, _payload, socket) do
     {:reply, {:error, %{reason: "unknown_event", event: unknown}}, socket}
+  end
+
+  defp design_system_summary(ds) do
+    %{id: ds.id, title: ds.title, category: ds.category, description: ds.description}
+  end
+
+  defp design_system_full(ds) do
+    Map.put(design_system_summary(ds), :body, ds.body)
+  end
+
+  defp skill_summary(sk) do
+    %{id: sk.id, name: sk.name, description: sk.description, triggers: sk.triggers}
+  end
+
+  defp skill_full(sk) do
+    Map.put(skill_summary(sk), :body, sk.body)
   end
 
   defp parse_topic(topic) do
