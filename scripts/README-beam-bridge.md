@@ -75,10 +75,12 @@ BEAM_DESIGN_WORKSPACE_DIR=/Users/jwen/workspace/ml/open-design \
 cd ~/workspace/ml/open-design
 BEAM_DAEMON_URL=ws://127.0.0.1:4000/socket/websocket \
 BEAM_AGENT_ID=deepinfra \
-BEAM_MODEL_TEXT=deepseek-ai/DeepSeek-V3.2 \
+BEAM_MODEL_TEXT=deepseek-ai/DeepSeek-V4-Flash \
 BEAM_MODEL_VISION=Qwen/Qwen3-VL-235B-A22B-Instruct \
   pnpm tools-dev run web --daemon-port 17456 --web-port 17573
 ```
+
+DeepSeek V4-Flash (~$0.28 / 1M output) is the documented default — newer architecture than V3.2 and *cheaper*, so the upgrade is unconditional. Set `BEAM_MODEL_TEXT=deepseek-ai/DeepSeek-V4-Pro` (~$3.48 / 1M output) when chat reasoning quality matters more than cost.
 
 Now chat in the UI streams through DeepInfra's OpenAI-compatible API (`https://api.deepinfra.com/v1/openai`). The bridge picks the model by request shape: text-only chats hit the cheap text tier, attachments-with-images hit the vision tier — "right model at the right time" instead of paying $0.88/1M output for plain text.
 
