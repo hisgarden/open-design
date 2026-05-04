@@ -1051,16 +1051,26 @@ async function renderGrokImage(ctx, credentials) {
 // schema on the model's DeepInfra page and add the buildBody fn here.
 type DeepInfraImageModel = {
   remote: string;
-  buildBody: (prompt: string, imageDataUrl: string) => Record<string, unknown>;
+  /** 't2i' models accept prompt-only requests; 'i2i' models require ctx.imageRef. */
+  mode: 't2i' | 'i2i';
+  /** imageDataUrl is null for t2i, the data URL for i2i. */
+  buildBody: (prompt: string, imageDataUrl: string | null) => Record<string, unknown>;
 };
 const DEEPINFRA_IMAGE_MODELS: Record<string, DeepInfraImageModel> = {
   'qwen-image-edit': {
     remote: 'Qwen/Qwen-Image-Edit',
+    mode: 'i2i',
     buildBody: (prompt, image) => ({ prompt, image }),
   },
   'wan-2.7-image-edit': {
     remote: 'Wan-AI/Wan2.7-Image-Edit',
+    mode: 'i2i',
     buildBody: (prompt, image) => ({ prompt, image_urls: [image] }),
+  },
+  'qwen-image-max': {
+    remote: 'Qwen/Qwen-Image-Max',
+    mode: 't2i',
+    buildBody: (prompt) => ({ prompt }),
   },
 };
 
@@ -1076,18 +1086,20 @@ async function renderDeepInfraImage(ctx, credentials) {
       `deepinfra image: unknown model "${ctx.model}" (only ${Object.keys(DEEPINFRA_IMAGE_MODELS).join(', ')} wired today)`,
     );
   }
-  // Every wired DeepInfra image model today is i2i — they require an
-  // input image. Fail loudly if the request didn't carry one rather
-  // than silently fallback to t2i, which these models don't support
-  // cleanly anyway.
-  if (!ctx.imageRef || !ctx.imageRef.dataUrl) {
+  // i2i models require a reference image; t2i models forbid one.
+  // Fail loudly on mismatch rather than silently coerce — the modes
+  // produce very different outputs and the user's intent matters.
+  if (def.mode === 'i2i' && (!ctx.imageRef || !ctx.imageRef.dataUrl)) {
     throw new Error(
-      `deepinfra ${ctx.model} needs a reference image — pass --image or upload one`,
+      `deepinfra ${ctx.model} (i2i) needs a reference image — pass --image or upload one`,
     );
   }
   const baseUrl = (credentials.baseUrl || 'https://api.deepinfra.com/v1').replace(/\/$/, '');
   const url = `${baseUrl}/inference/${def.remote}`;
-  const body = def.buildBody(ctx.prompt || 'rework the given image', ctx.imageRef.dataUrl);
+  const body = def.buildBody(
+    ctx.prompt || 'rework the given image',
+    def.mode === 'i2i' ? ctx.imageRef.dataUrl : null,
+  );
   const resp = await fetch(url, {
     method: 'POST',
     headers: {
@@ -1131,7 +1143,7 @@ async function renderDeepInfraImage(ctx, credentials) {
   }
   return {
     bytes,
-    providerNote: `deepinfra/${def.remote} · i2i · ${bytes.length} bytes`,
+    providerNote: `deepinfra/${def.remote} · ${def.mode} · ${bytes.length} bytes`,
     suggestedExt: sniffImageExt(bytes),
   };
 }

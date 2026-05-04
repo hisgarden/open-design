@@ -88,9 +88,11 @@ function parseArgs(argv: string[]): SmokeArgs {
     else if (a === '--model') out.model = next();
     else if (a === '-h' || a === '--help') {
       process.stdout.write(
-        'Usage: node --experimental-strip-types scripts/qwen-image-edit-smoke.ts --image <path> [--model <id>] [--template <json>] [--prompt <str>] [--name <str>] [--aspect 4:3]\n' +
+        'Usage: node --experimental-strip-types scripts/qwen-image-edit-smoke.ts [--model <id>] [--image <path>] [--template <json>] [--prompt <str>] [--name <str>] [--aspect 4:3]\n' +
           '\n' +
-          'Default --model is wan-2.7-image-edit (best fidelity on DeepInfra). Other options: qwen-image-edit (cheap/fast).\n',
+          '--image is required for i2i models (wan-2.7-image-edit, qwen-image-edit).\n' +
+          '--image is forbidden for t2i models (qwen-image-max).\n' +
+          'Default --model is wan-2.7-image-edit. Set --model qwen-image-max for prompt-only generation.\n',
       );
       process.exit(0);
     } else {
@@ -110,17 +112,38 @@ const DAEMON_URL = (process.env.OD_DAEMON_URL || 'http://127.0.0.1:17456').repla
 
 const args = parseArgs(process.argv.slice(2));
 
-if (!args.image) {
+// Mirror the daemon's DEEPINFRA_IMAGE_MODELS mode field. Kept in sync
+// by hand; if the daemon adds a new model, add it here too or the
+// smoke will reject it.
+const I2I_MODELS = new Set(['wan-2.7-image-edit', 'qwen-image-edit']);
+const T2I_MODELS = new Set(['qwen-image-max']);
+
+if (I2I_MODELS.has(args.model) && !args.image) {
   process.stderr.write(
-    'error: --image <path> is required (Qwen-Image-Edit is image-to-image; pass any age-verification UI screenshot or other reference)\n',
+    `error: model ${args.model} is i2i; --image <path> is required (any reference image)\n`,
+  );
+  process.exit(2);
+}
+if (T2I_MODELS.has(args.model) && args.image) {
+  process.stderr.write(
+    `error: model ${args.model} is t2i; --image is not accepted (omit --image to generate from prompt alone)\n`,
+  );
+  process.exit(2);
+}
+if (!I2I_MODELS.has(args.model) && !T2I_MODELS.has(args.model)) {
+  process.stderr.write(
+    `error: unknown --model "${args.model}" (known: ${[...I2I_MODELS, ...T2I_MODELS].join(', ')})\n`,
   );
   process.exit(2);
 }
 
-const imageAbs = isAbsolute(args.image) ? args.image : resolve(process.cwd(), args.image);
-if (!existsSync(imageAbs)) {
-  process.stderr.write(`error: --image not found: ${imageAbs}\n`);
-  process.exit(2);
+let imageAbs: string | null = null;
+if (args.image) {
+  imageAbs = isAbsolute(args.image) ? args.image : resolve(process.cwd(), args.image);
+  if (!existsSync(imageAbs)) {
+    process.stderr.write(`error: --image not found: ${imageAbs}\n`);
+    process.exit(2);
+  }
 }
 
 // -------- prompt --------------------------------------------------------
@@ -171,28 +194,32 @@ await apiPost('/api/projects', {
   metadata: { kind: 'image' },
 });
 
-// -------- step 2: stage reference into project dir ---------------------
+// -------- step 2: stage reference into project dir (i2i only) ---------
 
 const projectDir = join(REPO_ROOT, '.od', 'projects', projectId);
 mkdirSync(projectDir, { recursive: true });
 
-const refName = basename(imageAbs);
-const refDest = join(projectDir, refName);
-copyFileSync(imageAbs, refDest);
-
-process.stderr.write(`[2/5] staged reference ${refName} -> ${refDest}\n`);
+let refName: string | null = null;
+if (imageAbs) {
+  refName = basename(imageAbs);
+  copyFileSync(imageAbs, join(projectDir, refName));
+  process.stderr.write(`[2/5] staged reference ${refName}\n`);
+} else {
+  process.stderr.write(`[2/5] t2i model — no reference staged\n`);
+}
 
 // -------- step 3: kick off generation ----------------------------------
 
 process.stderr.write(`[3/5] POST /api/projects/${projectId}/media/generate (model=${args.model}, aspect=${args.aspect})\n`);
 
-const genResp = await apiPost(`/api/projects/${projectId}/media/generate`, {
+const genReqBody: Record<string, unknown> = {
   surface: 'image',
   model: args.model,
   prompt,
-  image: refName, // project-relative; daemon's resolveProjectImage demands inside-project
   aspect: args.aspect,
-});
+};
+if (refName) genReqBody.image = refName; // project-relative; daemon enforces in-project sandbox
+const genResp = await apiPost(`/api/projects/${projectId}/media/generate`, genReqBody);
 
 const taskId = genResp.taskId;
 if (!taskId) {

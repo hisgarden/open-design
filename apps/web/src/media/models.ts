@@ -292,7 +292,12 @@ export const IMAGE_MODELS: MediaModel[] = [
     caps: ['t2i'],
   },
 
-  // DeepInfra-hosted image-edit models. Two tiers today:
+  // DeepInfra-hosted image models. Three options today:
+  //
+  //   * qwen-image-max — Qwen-Image-Max, text-to-image. Use when you
+  //     need a fresh image from a prompt alone (no reference). Pairs
+  //     well as the "stage 1" of a t2i→i2i chain that ends at
+  //     wan-2.7-image-edit for stylized output.
   //
   //   * wan-2.7-image-edit — Alibaba Wan 2.7, bleeding-edge i2i; closest
   //     DeepInfra analog to gpt-image-2's edit mode for high-fidelity
@@ -302,6 +307,13 @@ export const IMAGE_MODELS: MediaModel[] = [
   //   * qwen-image-edit — Qwen-Image-Edit, faster + cheaper but lower
   //     fidelity. Use for quick smoke tests and prototyping where wire
   //     correctness matters more than output polish.
+  {
+    id: 'qwen-image-max',
+    label: 'Qwen-Image-Max',
+    hint: 'DeepInfra · Qwen-Image-Max · high-fidelity t2i',
+    provider: 'deepinfra',
+    caps: ['t2i'],
+  },
   {
     id: 'wan-2.7-image-edit',
     label: 'Wan-2.7-Image-Edit',
