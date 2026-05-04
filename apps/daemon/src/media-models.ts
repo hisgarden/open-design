@@ -43,6 +43,7 @@ export const IMAGE_MODELS = [
 
   { id: 'flux-2-klein-4b', label: 'FLUX-2-klein-4b', hint: 'DeepInfra · BFL FLUX 2 klein · fastest, but in-image text is weak', provider: 'deepinfra', caps: ['t2i'] },
   { id: 'qwen-image-max', label: 'Qwen-Image-Max', hint: 'DeepInfra · Qwen-Image-Max · cheaper general-purpose t2i', provider: 'deepinfra', caps: ['t2i'] },
+  { id: 'seedream-4', label: 'Seedream-4', hint: 'DeepInfra · ByteDance Seedream-4 · multimodal t2i, but in-image text is weak', provider: 'deepinfra', caps: ['t2i'] },
   { id: 'wan-2.7-image-edit', label: 'Wan-2.7-Image-Edit', hint: 'DeepInfra · Alibaba Wan 2.7 · high-fidelity i2i edit', provider: 'deepinfra', caps: ['i2i'] },
   { id: 'qwen-image-edit', label: 'Qwen-Image-Edit', hint: 'DeepInfra · Qwen i2i · cheaper, lower fidelity', provider: 'deepinfra', caps: ['i2i'] },
 

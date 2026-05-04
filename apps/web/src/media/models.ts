@@ -326,6 +326,13 @@ export const IMAGE_MODELS: MediaModel[] = [
     caps: ['t2i'],
   },
   {
+    id: 'seedream-4',
+    label: 'Seedream-4',
+    hint: 'DeepInfra · ByteDance Seedream-4 · multimodal t2i, but in-image text is weak',
+    provider: 'deepinfra',
+    caps: ['t2i'],
+  },
+  {
     id: 'wan-2.7-image-edit',
     label: 'Wan-2.7-Image-Edit',
     hint: 'DeepInfra · Alibaba Wan 2.7 · high-fidelity i2i edit',

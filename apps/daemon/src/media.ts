@@ -1077,6 +1077,16 @@ const DEEPINFRA_IMAGE_MODELS: Record<string, DeepInfraImageModel> = {
     mode: 't2i',
     buildBody: (prompt) => ({ prompt }),
   },
+  'seedream-4': {
+    remote: 'ByteDance/Seedream-4',
+    mode: 't2i',
+    // Seedream's upstream Volcengine schema uses {prompt, size}; DeepInfra
+    // passes through. Bare {prompt} returns a 500 "request_info init
+    // exception". Default to a 16:9-ish 1280x720 since that's our smoke
+    // ratio; users wanting different sizes will need a richer body
+    // builder (out of scope for this wiring).
+    buildBody: (prompt) => ({ prompt, size: '1280x720' }),
+  },
 };
 
 async function renderDeepInfraImage(ctx, credentials) {
