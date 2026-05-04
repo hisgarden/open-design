@@ -21,9 +21,9 @@
  */
 
 import { EventEmitter } from "node:events";
-import { readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { extname, isAbsolute, join, resolve } from "node:path";
 import type { IncomingMessage, ServerResponse } from "node:http";
 
 import type {
@@ -51,13 +51,38 @@ export interface BeamBridgeConfig {
    * and the operator wants HTTP-only paths like `deepinfra`.
    */
   agentOverride: string | null;
-  /** Optional model override forwarded to BEAM when the UI didn't pick one. */
-  modelOverride: string | null;
+  /**
+   * Tier-aware default models. When the request carries image attachments,
+   * `modelVision` is used; otherwise `modelText`. The legacy `BEAM_MODEL`
+   * env var still works as a tier-agnostic default — it populates both
+   * tiers if neither `BEAM_MODEL_TEXT` nor `BEAM_MODEL_VISION` are set.
+   *
+   * "Right model at the right time": pay $0.88/1M output for a vision
+   * flagship only when the request actually includes an image; fall back
+   * to a cheap text model (e.g. DeepSeek-V3.2 at $0.38/1M) for plain
+   * text chats.
+   */
+  modelText: string | null;
+  modelVision: string | null;
+  /**
+   * Roots used to resolve relative attachment paths into absolute file
+   * paths the bridge can read. Falls back to the sidecar's cwd.
+   */
+  attachmentRoots: string[];
+  /** Hard cap on a single attached image's bytes after read (defends the model + the channel payload). */
+  maxImageBytes: number;
 }
 
 export function configFromEnv(): BeamBridgeConfig | null {
   const daemonUrl = process.env.BEAM_DAEMON_URL;
   if (daemonUrl == null || daemonUrl === "") return null;
+  const legacy = process.env.BEAM_MODEL?.trim() || null;
+  const text = process.env.BEAM_MODEL_TEXT?.trim() || legacy;
+  const vision = process.env.BEAM_MODEL_VISION?.trim() || legacy;
+  const roots = (process.env.BEAM_ATTACHMENT_ROOTS || "")
+    .split(":")
+    .map((p) => p.trim())
+    .filter(Boolean);
   return {
     daemonUrl,
     workspaceId: process.env.BEAM_WORKSPACE_ID || "open-design",
@@ -66,7 +91,10 @@ export function configFromEnv(): BeamBridgeConfig | null {
       join(homedir(), ".beam-design", "auth-token"),
     retentionMs: 5 * 60_000,
     agentOverride: process.env.BEAM_AGENT_ID?.trim() || null,
-    modelOverride: process.env.BEAM_MODEL?.trim() || null,
+    modelText: text,
+    modelVision: vision,
+    attachmentRoots: roots.length > 0 ? roots : [process.cwd()],
+    maxImageBytes: Number(process.env.BEAM_MAX_IMAGE_BYTES || 5 * 1024 * 1024),
   };
 }
 
@@ -173,6 +201,13 @@ interface ChatRequestLike {
   model?: string | null;
   projectId?: string | null;
   conversationId?: string | null;
+  /**
+   * Mirrors `ChatRequest.attachments` from `@open-design/contracts`: a
+   * list of paths (absolute or root-relative) to files attached by the
+   * user. The bridge reads image entries off disk and forwards them as
+   * inline base64 image blocks so vision models can see them.
+   */
+  attachments?: string[];
 }
 
 const AGENT_ID_TO_BEAM: Record<string, string> = {
@@ -185,6 +220,103 @@ const AGENT_ID_TO_BEAM: Record<string, string> = {
 function mapAgentId(agentId: string | undefined, override: string | null): string {
   if (override != null && override !== "") return override;
   return (agentId && AGENT_ID_TO_BEAM[agentId]) || "claude-code";
+}
+
+const IMAGE_EXT_TO_MIME: Record<string, string> = {
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+  ".bmp": "image/bmp",
+  ".avif": "image/avif",
+};
+
+interface BridgeImage {
+  base64: string;
+  mime: string;
+}
+
+/**
+ * Resolve a user-attached file path into an absolute path the bridge can
+ * read. Tries (in order): absolute as given, each `attachmentRoots`
+ * entry. Returns null if no candidate resolves to an existing file —
+ * caller logs and skips.
+ */
+function resolveAttachmentPath(p: string, roots: string[]): string | null {
+  if (isAbsolute(p)) {
+    try {
+      if (statSync(p).isFile()) return p;
+    } catch {
+      return null;
+    }
+    return null;
+  }
+  for (const root of roots) {
+    const abs = resolve(root, p);
+    try {
+      if (statSync(abs).isFile()) return abs;
+    } catch {
+      // try next root
+    }
+  }
+  return null;
+}
+
+/**
+ * Read attachment paths off disk and keep only the image entries. Files
+ * exceeding `maxImageBytes` are skipped (not an error — the model can
+ * still respond on text alone). Non-image extensions are also skipped:
+ * the bridge today only forwards visual context to vision models, not
+ * raw documents (PDF/DOCX), since BEAM's deepinfra adapter speaks
+ * OpenAI's chat-completions image_url shape and not the file-input
+ * extension.
+ */
+function readImageAttachments(
+  paths: readonly string[],
+  roots: string[],
+  maxImageBytes: number,
+): BridgeImage[] {
+  const out: BridgeImage[] = [];
+  for (const raw of paths) {
+    const ext = extname(raw).toLowerCase();
+    const mime = IMAGE_EXT_TO_MIME[ext];
+    if (mime == null) continue;
+    const abs = resolveAttachmentPath(raw, roots);
+    if (abs == null) {
+      console.warn(`[beam-bridge] attachment not found, skipping: ${raw}`);
+      continue;
+    }
+    try {
+      const bytes = readFileSync(abs);
+      if (bytes.length > maxImageBytes) {
+        console.warn(
+          `[beam-bridge] attachment ${raw} (${bytes.length} bytes) exceeds BEAM_MAX_IMAGE_BYTES=${maxImageBytes}, skipping`,
+        );
+        continue;
+      }
+      out.push({ base64: bytes.toString("base64"), mime });
+    } catch (err) {
+      console.warn(`[beam-bridge] failed to read attachment ${raw}: ${(err as Error).message}`);
+    }
+  }
+  return out;
+}
+
+/**
+ * Pick the model based on whether the request carries images:
+ *   - request.model (UI explicit) wins outright if set
+ *   - else BEAM_MODEL_VISION when there are images
+ *   - else BEAM_MODEL_TEXT
+ *   - else null (BEAM falls back to its own default model)
+ */
+function pickModel(
+  config: BeamBridgeConfig,
+  bodyModel: string | null | undefined,
+  hasImages: boolean,
+): string | null {
+  if (bodyModel != null && bodyModel !== "") return bodyModel;
+  return hasImages ? config.modelVision : config.modelText;
 }
 
 async function readJsonBody(req: IncomingMessage): Promise<ChatRequestLike> {
@@ -211,7 +343,12 @@ export async function handleBeamRunStart(
   const body = await readJsonBody(req);
   const runId = generateRunId();
   const beamAgent = mapAgentId(body.agentId, config.agentOverride);
-  const beamModel = body.model ?? config.modelOverride;
+  const images = readImageAttachments(
+    body.attachments ?? [],
+    config.attachmentRoots,
+    config.maxImageBytes,
+  );
+  const beamModel = pickModel(config, body.model, images.length > 0);
 
   let token: string;
   try {
@@ -295,6 +432,7 @@ export async function handleBeamRunStart(
             prompt: body.message ?? "",
             agent: beamAgent,
             ...(beamModel ? { model: beamModel } : {}),
+            ...(images.length > 0 ? { images } : {}),
           });
         } else {
           terminate(run, {
