@@ -1,0 +1,190 @@
+# Local development orchestration for the hisgarden/open-design fork.
+#
+# Run `task --list` to discover. Run `task <name>` to invoke. Long-running
+# tasks (web, beam) are foreground; up/down compositions backgrounding +
+# health-checking the pieces.
+#
+# Why this exists: the fork adds a BEAM bridge + DeepInfra image surface
+# that needs ~6 env vars to launch correctly. Pasting them as a multi-line
+# command into a terminal regularly breaks on line-wrap. A Taskfile makes
+# the env stack a definition that can't be copy-paste-corrupted.
+
+version: '3'
+
+vars:
+  REPO_ROOT:
+    sh: pwd
+  BEAM_REPO: '{{.HOME}}/code/beam-design-daemon'
+  WEB_PORT: '17573'
+  DAEMON_PORT: '17456'
+  BEAM_PORT: '4000'
+
+env:
+  # BEAM bridge env stack — sourced by web:up:bridge and stack:up tasks.
+  # NOT exported globally so web:up (no bridge) stays clean.
+  BEAM_DAEMON_URL: ws://127.0.0.1:4000/socket/websocket
+  BEAM_AGENT_ID: deepinfra
+  BEAM_MODEL_TEXT: deepseek-ai/DeepSeek-V4-Flash
+  BEAM_MODEL_VISION: Qwen/Qwen3-VL-235B-A22B-Instruct
+
+tasks:
+  default:
+    desc: Show this help.
+    cmds:
+      - task --list
+
+  # ---- web sidecar (Node) ------------------------------------------------
+
+  web:up:
+    desc: 'Start the web sidecar with NO BEAM bridge (Image tab works; chat uses upstream JS daemon CLI agents).'
+    aliases: [up:plain, plain]
+    cmds:
+      - |
+        unset BEAM_DAEMON_URL BEAM_AGENT_ID BEAM_MODEL_TEXT BEAM_MODEL_VISION
+        pnpm tools-dev run web --daemon-port {{.DAEMON_PORT}} --web-port {{.WEB_PORT}}
+
+  web:up:bridge:
+    desc: 'Start the web sidecar with the BEAM bridge active (chat → BEAM → DeepInfra; needs beam:up running first).'
+    aliases: [up:bridge, bridge]
+    cmds:
+      - pnpm tools-dev run web --daemon-port {{.DAEMON_PORT}} --web-port {{.WEB_PORT}}
+
+  web:down:
+    desc: 'Stop the web sidecar + JS daemon (anything tools-dev started on the configured ports).'
+    cmds:
+      - pkill -f 'tools-dev run web' 2>/dev/null || true
+      - |
+        for p in {{.WEB_PORT}} {{.DAEMON_PORT}}; do
+          pid=$(lsof -nP -iTCP:$p -sTCP:LISTEN 2>/dev/null | awk 'NR==2{print $2}')
+          [ -n "$pid" ] && kill "$pid" 2>/dev/null || true
+        done
+      - sleep 1
+      - echo "web sidecar stopped"
+
+  # ---- BEAM daemon (Elixir/Phoenix) --------------------------------------
+  #
+  # Runs from {{.BEAM_REPO}} (the canonical standalone repo) where mix deps
+  # are already fetched. The apps/beam-daemon/ subtree copy is for browsing
+  # source + cross-repo sync, not for execution — it lacks _build/ and
+  # deps/ unless you `mix deps.get` there separately.
+
+  beam:up:
+    desc: 'Start the BEAM Design Daemon (Phoenix endpoint on :{{.BEAM_PORT}}). Foreground; Ctrl-C stops.'
+    cmds:
+      - |
+        cd {{.BEAM_REPO}}
+        BEAM_DESIGN_WORKSPACE_DIR={{.REPO_ROOT}} mix run --no-halt
+
+  beam:down:
+    desc: 'Stop the BEAM Design Daemon (kills any process listening on :{{.BEAM_PORT}}).'
+    cmds:
+      - |
+        pid=$(lsof -nP -iTCP:{{.BEAM_PORT}} -sTCP:LISTEN 2>/dev/null | awk 'NR==2{print $2}')
+        if [ -n "$pid" ]; then
+          kill "$pid" 2>/dev/null
+          sleep 2
+          echo "BEAM stopped (was PID $pid)"
+        else
+          echo "BEAM not running"
+        fi
+
+  # ---- combined stack ----------------------------------------------------
+
+  stack:status:
+    desc: 'Show which Open Design + BEAM processes are listening locally.'
+    aliases: [status]
+    silent: true
+    cmds:
+      - |
+        echo "=== ports ==="
+        lsof -nP -iTCP:{{.WEB_PORT}},{{.DAEMON_PORT}},{{.BEAM_PORT}} -sTCP:LISTEN 2>/dev/null \
+          | awk 'NR==1 || /LISTEN/ {printf "%-12s %-8s %s\n", $1, $2, $9}'
+        echo
+        echo "=== health ==="
+        for label_port in 'web:{{.WEB_PORT}}' 'daemon:{{.DAEMON_PORT}}/api/health' 'BEAM:{{.BEAM_PORT}}'; do
+          label="${label_port%%:*}"
+          rest="${label_port#*:}"
+          port="${rest%%/*}"
+          path="/${rest#*/}"
+          [ "$rest" = "$port" ] && path="/"
+          code=$(curl -sS -m 2 -o /dev/null -w "%{http_code}" "http://127.0.0.1:${port}${path}" 2>/dev/null || true)
+          if [ -z "$code" ] || [ "$code" = "000" ]; then code="DOWN"; fi
+          printf "%-8s %-25s → %s\n" "$label" "http://127.0.0.1:${port}${path}" "$code"
+        done
+
+  stack:down:
+    desc: 'Stop everything (web sidecar + JS daemon + BEAM).'
+    aliases: [down]
+    cmds:
+      - task: web:down
+      - task: beam:down
+
+  # ---- smoke tests -------------------------------------------------------
+
+  smoke:image:
+    desc: 'Drive a single Qwen-Image-Max t2i call through /api/media/generate. Needs web:up running.'
+    cmds:
+      - |
+        node --experimental-strip-types scripts/qwen-image-edit-smoke.ts \
+          --model qwen-image-max --aspect 16:9 \
+          --name "taskfile smoke" \
+          --prompt "xkcd-style hand-drawn black-and-white. ALL TEXT HAND-LETTERED ALL-CAPS. A simple stick figure waves. Caption: 'TASKFILE SMOKE OK'."
+
+  smoke:bridge:
+    desc: 'Drive a single chat run through the BEAM bridge. Needs both beam:up and web:up:bridge running.'
+    cmds:
+      - |
+        RUN=$(curl -sS -X POST http://127.0.0.1:{{.WEB_PORT}}/api/runs \
+          -H 'content-type: application/json' \
+          -d '{"agentId":"claude","message":"reply with one sentence: bridge smoke ok","skillId":"html-ppt","designSystemId":"obsidian-claude-gradient"}')
+        RID=$(echo "$RUN" | sed -n 's/.*"runId"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+        echo "runId=$RID"
+        curl -sS -N -m 30 "http://127.0.0.1:{{.WEB_PORT}}/api/runs/$RID/events" 2>&1 | head -20
+
+  # ---- gates -------------------------------------------------------------
+
+  check:
+    desc: 'Run the full pre-commit gate suite (typecheck + tests + residual-js + media-models drift).'
+    cmds:
+      - pnpm -r --if-present run typecheck
+      - pnpm -r --if-present run test
+      - pnpm check:residual-js
+      - node scripts/verify-media-models.mjs
+
+  check:typecheck:
+    desc: 'Just the typechecks (web + daemon + everything else with a typecheck script).'
+    cmds:
+      - pnpm -r --if-present run typecheck
+
+  check:test:
+    desc: 'Just the tests.'
+    cmds:
+      - pnpm -r --if-present run test
+
+  check:residual-js:
+    desc: 'Verify no project-owned .js/.mjs/.cjs files have crept in.'
+    cmds:
+      - pnpm check:residual-js
+
+  check:media-models:
+    desc: 'Verify the daemon (JS) and web (TS) media model registries are in sync.'
+    cmds:
+      - node scripts/verify-media-models.mjs
+
+  # ---- BEAM subtree sync (hybrid repo arrangement) -----------------------
+
+  beam:sync:pull:
+    desc: 'Pull BEAM-only commits FROM the standalone repo INTO apps/beam-daemon/ (subtree pull).'
+    cmds:
+      - git subtree pull --prefix=apps/beam-daemon {{.BEAM_REPO}} feat/v1-skeleton
+
+  beam:sync:push:
+    desc: 'Push BEAM-only commits FROM apps/beam-daemon/ BACK to the standalone repo (subtree push).'
+    cmds:
+      - git subtree push --prefix=apps/beam-daemon {{.BEAM_REPO}} feat/v1-skeleton
+
+# ##############################################################################
+# Changelog:
+# 2026-05-04  Initial Taskfile — web:up{,:bridge}, beam:up/down, stack:status,
+#             smoke:{image,bridge}, check (full + per-gate), beam:sync:{pull,push}.
+# ##############################################################################
