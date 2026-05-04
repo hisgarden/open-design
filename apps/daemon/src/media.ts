@@ -1077,6 +1077,11 @@ const DEEPINFRA_IMAGE_MODELS: Record<string, DeepInfraImageModel> = {
     mode: 't2i',
     buildBody: (prompt) => ({ prompt }),
   },
+  'flux-2-pro': {
+    remote: 'black-forest-labs/FLUX-2-pro',
+    mode: 't2i',
+    buildBody: (prompt) => ({ prompt }),
+  },
   'seedream-4': {
     remote: 'ByteDance/Seedream-4',
     mode: 't2i',
@@ -1133,13 +1138,18 @@ async function renderDeepInfraImage(ctx, credentials) {
   } catch {
     throw new Error(`deepinfra image non-JSON: ${truncate(text, 200)}`);
   }
-  // Qwen-Image-Edit returns `{ images: ["data:image/png;base64,..."] }`.
-  // Some DeepInfra inference shapes wrap differently; fall through to a
-  // few common keys before erroring.
+  // Different DeepInfra-hosted image models wrap their output in different
+  // top-level keys. Fall through the common shapes before erroring:
+  //   * Qwen-Image-Edit / Qwen-Image-Max: { images: ["data:..." | "http..."] }
+  //   * Wan-2.7-Image-Edit:               { images: [...] }
+  //   * Some i2v-style models:            { output: [...] }
+  //   * Seedream-4 / older shapes:        { image: "..." }
+  //   * FLUX-2-pro (BFL passthrough):     { image_url: "https://delivery.us3.bfl.ai/..." }
   let entry = null;
   if (Array.isArray(data?.images) && data.images.length > 0) entry = data.images[0];
   else if (Array.isArray(data?.output) && data.output.length > 0) entry = data.output[0];
   else if (typeof data?.image === 'string') entry = data.image;
+  else if (typeof data?.image_url === 'string') entry = data.image_url;
   if (typeof entry !== 'string' || !entry) {
     throw new Error(`deepinfra image: response had no images/output/image field`);
   }

@@ -312,6 +312,13 @@ export const IMAGE_MODELS: MediaModel[] = [
   //     fidelity. Use for quick smoke tests and prototyping where wire
   //     correctness matters more than output polish.
   {
+    id: 'flux-2-pro',
+    label: 'FLUX-2-pro',
+    hint: 'DeepInfra · BFL FLUX 2 pro · top-tier for photoreal/modern illustration; weak on hand-drawn styles',
+    provider: 'deepinfra',
+    caps: ['t2i'],
+  },
+  {
     id: 'flux-2-klein-4b',
     label: 'FLUX-2-klein-4b',
     hint: 'DeepInfra · BFL FLUX 2 klein · fastest, but in-image text is weak',

@@ -41,6 +41,7 @@ export const IMAGE_MODELS = [
 
   { id: 'grok-imagine-image', label: 'grok-imagine-image', hint: 'xAI · 2K text-to-image', provider: 'grok', caps: ['t2i'] },
 
+  { id: 'flux-2-pro', label: 'FLUX-2-pro', hint: 'DeepInfra · BFL FLUX 2 pro · top-tier for photoreal/modern illustration; weak on hand-drawn styles', provider: 'deepinfra', caps: ['t2i'] },
   { id: 'flux-2-klein-4b', label: 'FLUX-2-klein-4b', hint: 'DeepInfra · BFL FLUX 2 klein · fastest, but in-image text is weak', provider: 'deepinfra', caps: ['t2i'] },
   { id: 'qwen-image-max', label: 'Qwen-Image-Max', hint: 'DeepInfra · Qwen-Image-Max · cheaper general-purpose t2i', provider: 'deepinfra', caps: ['t2i'] },
   { id: 'seedream-4', label: 'Seedream-4', hint: 'DeepInfra · ByteDance Seedream-4 · multimodal t2i, but in-image text is weak', provider: 'deepinfra', caps: ['t2i'] },
