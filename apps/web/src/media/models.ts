@@ -43,6 +43,7 @@ export type MediaProviderId =
   | 'udio'
   | 'elevenlabs'
   | 'fishaudio'
+  | 'deepinfra'
   | 'stub';
 
 export interface MediaProvider {
@@ -183,6 +184,14 @@ export const MEDIA_PROVIDERS: MediaProvider[] = [
     docsUrl: 'https://fish.audio',
   },
   {
+    id: 'deepinfra',
+    label: 'DeepInfra',
+    hint: 'Qwen-Image-Edit · Qwen-Image-Max · etc.',
+    integrated: true,
+    defaultBaseUrl: 'https://api.deepinfra.com/v1',
+    docsUrl: 'https://deepinfra.com/dash/api_keys',
+  },
+  {
     id: 'stub',
     label: 'Stub (placeholder)',
     hint: 'Deterministic local placeholder bytes',
@@ -281,6 +290,16 @@ export const IMAGE_MODELS: MediaModel[] = [
     hint: 'xAI · 2K text-to-image',
     provider: 'grok',
     caps: ['t2i'],
+  },
+
+  // DeepInfra — Qwen-Image-Edit (i2i edit, drop-in for templates that
+  // declare gpt-image-2 i2i without paying OpenAI).
+  {
+    id: 'qwen-image-edit',
+    label: 'Qwen-Image-Edit',
+    hint: 'DeepInfra · image-to-image edit (Qwen-Image-Edit)',
+    provider: 'deepinfra',
+    caps: ['i2i'],
   },
 
   // Black Forest Labs FLUX family.

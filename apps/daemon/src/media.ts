@@ -359,6 +359,11 @@ export async function generateMedia(args) {
       bytes = result.bytes;
       providerNote = result.providerNote;
       suggestedExt = result.suggestedExt;
+    } else if (def.provider === 'deepinfra' && surface === 'image') {
+      const result = await renderDeepInfraImage(ctx, credentials);
+      bytes = result.bytes;
+      providerNote = result.providerNote;
+      suggestedExt = result.suggestedExt;
     } else if (def.provider === 'grok' && surface === 'video') {
       const result = await renderGrokVideo(ctx, credentials, args.onProgress);
       bytes = result.bytes;
@@ -1032,6 +1037,90 @@ async function renderGrokImage(ctx, credentials) {
   return {
     bytes,
     providerNote: `grok/${ctx.model} · ${aspectRatio} · ${bytes.length} bytes`,
+    suggestedExt: sniffImageExt(bytes),
+  };
+}
+
+// Provider: DeepInfra. Today only Qwen/Qwen-Image-Edit is wired (image-
+// to-image edit). The DeepInfra model id used at the wire is the
+// repo-style "Qwen/Qwen-Image-Edit"; we map our short model id
+// (`qwen-image-edit`) to that. Endpoint shape is DeepInfra's
+// /v1/inference/<model_id> — POST a JSON body with {prompt, image}, get
+// back {images: [data:image/...;base64,...]}.
+const DEEPINFRA_MODEL_MAP = {
+  'qwen-image-edit': 'Qwen/Qwen-Image-Edit',
+};
+
+async function renderDeepInfraImage(ctx, credentials) {
+  if (!credentials.apiKey) {
+    throw new Error(
+      'no DeepInfra API key — configure it in Settings or set DEEPINFRA_API_KEY',
+    );
+  }
+  const remoteModel = DEEPINFRA_MODEL_MAP[ctx.model];
+  if (!remoteModel) {
+    throw new Error(
+      `deepinfra image: unknown model "${ctx.model}" (only ${Object.keys(DEEPINFRA_MODEL_MAP).join(', ')} wired today)`,
+    );
+  }
+  // Qwen-Image-Edit is i2i — it requires an input image. Fail loudly if
+  // the request didn't carry one rather than silently fallback to t2i,
+  // which the model doesn't support cleanly anyway.
+  if (!ctx.imageRef || !ctx.imageRef.dataUrl) {
+    throw new Error(
+      'deepinfra qwen-image-edit needs a reference image — pass --image or upload one',
+    );
+  }
+  const baseUrl = (credentials.baseUrl || 'https://api.deepinfra.com/v1').replace(/\/$/, '');
+  const url = `${baseUrl}/inference/${remoteModel}`;
+  const body = {
+    prompt: ctx.prompt || 'rework the given image',
+    image: ctx.imageRef.dataUrl,
+  };
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'authorization': `Bearer ${credentials.apiKey}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  const text = await resp.text();
+  if (!resp.ok) {
+    throw new Error(`deepinfra image ${resp.status}: ${truncate(text, 240)}`);
+  }
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    throw new Error(`deepinfra image non-JSON: ${truncate(text, 200)}`);
+  }
+  // Qwen-Image-Edit returns `{ images: ["data:image/png;base64,..."] }`.
+  // Some DeepInfra inference shapes wrap differently; fall through to a
+  // few common keys before erroring.
+  let entry = null;
+  if (Array.isArray(data?.images) && data.images.length > 0) entry = data.images[0];
+  else if (Array.isArray(data?.output) && data.output.length > 0) entry = data.output[0];
+  else if (typeof data?.image === 'string') entry = data.image;
+  if (typeof entry !== 'string' || !entry) {
+    throw new Error(`deepinfra image: response had no images/output/image field`);
+  }
+  let bytes;
+  if (entry.startsWith('data:')) {
+    const comma = entry.indexOf(',');
+    if (comma < 0) throw new Error('deepinfra image: malformed data URL');
+    bytes = Buffer.from(entry.slice(comma + 1), 'base64');
+  } else if (entry.startsWith('http://') || entry.startsWith('https://')) {
+    const imgResp = await fetch(entry);
+    if (!imgResp.ok) throw new Error(`deepinfra image fetch ${imgResp.status}`);
+    bytes = Buffer.from(await imgResp.arrayBuffer());
+  } else {
+    // Plain base64 fallback.
+    bytes = Buffer.from(entry, 'base64');
+  }
+  return {
+    bytes,
+    providerNote: `deepinfra/${remoteModel} · i2i · ${bytes.length} bytes`,
     suggestedExt: sniffImageExt(bytes),
   };
 }
