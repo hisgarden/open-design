@@ -16,6 +16,7 @@ This file is the single source of truth for agents entering this repository. Rea
 - Top-level content directories: `skills/` (artifact-shape skills), `design-systems/` (brand `DESIGN.md` files), `craft/` (universal brand-agnostic craft rules a skill can opt into via `od.craft.requires`).
 - `apps/web` is the Next.js 16 App Router + React 18 web runtime; do not restore `apps/nextjs`.
 - `apps/daemon` is the local privileged daemon and `od` bin. It owns `/api/*`, agent spawning, skills, design systems, artifacts, and static serving.
+- `apps/beam-daemon` is the parallel Elixir/Phoenix re-implementation of the daemon, imported via `git subtree` from the standalone `beam-design-daemon` repo. Same domain (design systems + skills + agents + runs) but each run is a supervised GenServer reachable through a Phoenix Channel, swapping the JS event-loop architecture for BEAM/OTP supervision and message-passing. Driven through `apps/web/sidecar/beam-bridge.ts` as an alternate back-end behind `BEAM_DAEMON_URL`. Pure Elixir tree (`mix.exs` + `lib/` + `test/`); pnpm ignores it because there is no `package.json`. Not a Node workspace package.
 - `apps/desktop` is the Electron shell; it discovers the web URL through sidecar IPC.
 - `apps/packaged` is the thin packaged Electron runtime entry; it starts packaged sidecars and owns the `od://` entry glue only.
 - `packages/contracts` is the pure TypeScript web/daemon app contract layer.
