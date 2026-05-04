@@ -178,10 +178,31 @@ async function apiPost(path: string, body: unknown): Promise<any> {
 
 // -------- step 1: create project ---------------------------------------
 
-const projectId = `qwen-img-smoke-${Date.now().toString(36)}`;
+/**
+ * Build a filesystem-friendly slug from a free-form name. The daemon's
+ * project ID regex accepts [A-Za-z0-9._-]{1,128} (apps/daemon/src/
+ * server.ts:643), so the slug is lowercased, non-alphanumerics become
+ * hyphens, runs collapse, and the result is truncated. The slug goes
+ * BEFORE the timestamp so `ls .od/projects/qwen-img-smoke-*xkcd-2*`
+ * works without a SQLite lookup; the timestamp suffix preserves
+ * chronological sort order at the end of the name.
+ */
+function slugify(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 50);
+}
+
 const projectName = args.name || (templateMeta?.title
   ? `${templateMeta.title} smoke`
   : 'Qwen-Image-Edit smoke test');
+const slug = slugify(projectName);
+const ts = Date.now().toString(36);
+const projectId = slug
+  ? `qwen-img-smoke-${slug}-${ts}`
+  : `qwen-img-smoke-${ts}`;
 
 process.stderr.write(`[1/5] creating project ${projectId} (${projectName})\n`);
 
