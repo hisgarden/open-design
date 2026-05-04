@@ -1072,6 +1072,11 @@ const DEEPINFRA_IMAGE_MODELS: Record<string, DeepInfraImageModel> = {
     mode: 't2i',
     buildBody: (prompt) => ({ prompt }),
   },
+  'flux-2-klein-4b': {
+    remote: 'black-forest-labs/FLUX-2-klein-4b',
+    mode: 't2i',
+    buildBody: (prompt) => ({ prompt }),
+  },
 };
 
 async function renderDeepInfraImage(ctx, credentials) {

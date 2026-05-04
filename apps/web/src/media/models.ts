@@ -292,12 +292,16 @@ export const IMAGE_MODELS: MediaModel[] = [
     caps: ['t2i'],
   },
 
-  // DeepInfra-hosted image models. Three options today:
+  // DeepInfra-hosted image models. Four options today:
   //
-  //   * qwen-image-max — Qwen-Image-Max, text-to-image. Use when you
-  //     need a fresh image from a prompt alone (no reference). Pairs
-  //     well as the "stage 1" of a t2i→i2i chain that ends at
-  //     wan-2.7-image-edit for stylized output.
+  //   * flux-2-klein-4b — Black Forest Labs FLUX 2 klein, the fastest
+  //     of the FLUX 2 family. Best-in-class prompt adherence and
+  //     in-image text rendering. Use when the composition has multiple
+  //     labeled scenes / specific characters / readable text.
+  //
+  //   * qwen-image-max — Qwen-Image-Max, text-to-image. Cheaper t2i;
+  //     good general-purpose pick when prompt adherence matters less
+  //     than output style.
   //
   //   * wan-2.7-image-edit — Alibaba Wan 2.7, bleeding-edge i2i; closest
   //     DeepInfra analog to gpt-image-2's edit mode for high-fidelity
@@ -308,9 +312,16 @@ export const IMAGE_MODELS: MediaModel[] = [
   //     fidelity. Use for quick smoke tests and prototyping where wire
   //     correctness matters more than output polish.
   {
+    id: 'flux-2-klein-4b',
+    label: 'FLUX-2-klein-4b',
+    hint: 'DeepInfra · BFL FLUX 2 klein · best prompt adherence + in-image text',
+    provider: 'deepinfra',
+    caps: ['t2i'],
+  },
+  {
     id: 'qwen-image-max',
     label: 'Qwen-Image-Max',
-    hint: 'DeepInfra · Qwen-Image-Max · high-fidelity t2i',
+    hint: 'DeepInfra · Qwen-Image-Max · cheaper general-purpose t2i',
     provider: 'deepinfra',
     caps: ['t2i'],
   },
