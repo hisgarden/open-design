@@ -102,7 +102,10 @@ defmodule BeamDesign.Runs.RunServer do
   end
 
   defp dispatch_agent("deepinfra", payload) do
-    case DeepInfra.start(self(), payload["prompt"], model: payload["model"]) do
+    case DeepInfra.start(self(), payload["prompt"],
+           model: payload["model"],
+           images: payload["images"] || []
+         ) do
       {:ok, task_pid} -> {:ok, {:task, task_pid}}
       {:error, _} = err -> err
     end
