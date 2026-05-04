@@ -44,6 +44,15 @@ export interface BeamBridgeConfig {
   tokenPath: string;
   /** How long to retain a completed run's buffered events (ms). */
   retentionMs: number;
+  /**
+   * Optional agent override. When set, forces every run through this BEAM
+   * agent regardless of what the React UI picked. Useful when the JS
+   * daemon's `/api/agents` only advertises CLI agents (claude/codex/etc.)
+   * and the operator wants HTTP-only paths like `deepinfra`.
+   */
+  agentOverride: string | null;
+  /** Optional model override forwarded to BEAM when the UI didn't pick one. */
+  modelOverride: string | null;
 }
 
 export function configFromEnv(): BeamBridgeConfig | null {
@@ -56,6 +65,8 @@ export function configFromEnv(): BeamBridgeConfig | null {
       process.env.BEAM_DESIGN_TOKEN_PATH ||
       join(homedir(), ".beam-design", "auth-token"),
     retentionMs: 5 * 60_000,
+    agentOverride: process.env.BEAM_AGENT_ID?.trim() || null,
+    modelOverride: process.env.BEAM_MODEL?.trim() || null,
   };
 }
 
@@ -171,7 +182,8 @@ const AGENT_ID_TO_BEAM: Record<string, string> = {
   deepinfra: "deepinfra",
 };
 
-function mapAgentId(agentId: string | undefined): string {
+function mapAgentId(agentId: string | undefined, override: string | null): string {
+  if (override != null && override !== "") return override;
   return (agentId && AGENT_ID_TO_BEAM[agentId]) || "claude-code";
 }
 
@@ -198,7 +210,8 @@ export async function handleBeamRunStart(
   reapStale(config.retentionMs);
   const body = await readJsonBody(req);
   const runId = generateRunId();
-  const beamAgent = mapAgentId(body.agentId);
+  const beamAgent = mapAgentId(body.agentId, config.agentOverride);
+  const beamModel = body.model ?? config.modelOverride;
 
   let token: string;
   try {
@@ -247,10 +260,10 @@ export async function handleBeamRunStart(
   const startPayload: ChatSseStartPayload = {
     runId,
     agentId: beamAgent,
-    bin: beamAgent === "claude-code" ? "claude" : "deepinfra",
+    bin: beamAgent === "claude-code" ? "claude" : beamAgent,
     cwd: null,
     projectId: body.projectId ?? null,
-    model: body.model ?? null,
+    model: beamModel ?? null,
   };
   run.buffer.push({ event: "start", payload: startPayload });
   emitter.emit("sse", { event: "start", payload: startPayload });
@@ -281,7 +294,7 @@ export async function handleBeamRunStart(
             design_system_id: body.designSystemId ?? "obsidian-claude-gradient",
             prompt: body.message ?? "",
             agent: beamAgent,
-            ...(body.model ? { model: body.model } : {}),
+            ...(beamModel ? { model: beamModel } : {}),
           });
         } else {
           terminate(run, {
@@ -306,9 +319,10 @@ export async function handleBeamRunStart(
 
   ws.addEventListener("error", (err: any) => {
     terminate(run, { code: -1, status: "failed" });
+    const message = err?.message ?? String(err);
     const errorPayload: SseErrorPayload = {
-      code: "BEAM_WS_ERROR",
-      message: err?.message ?? String(err),
+      message,
+      error: { code: "UPSTREAM_UNAVAILABLE", message },
     };
     run.buffer.push({ event: "error", payload: errorPayload });
     emitter.emit("sse", { event: "error", payload: errorPayload });
@@ -431,8 +445,8 @@ export interface BeamBridgeRouteMatch {
 export function matchBeamBridgeRoute(method: string | undefined, pathname: string): BeamBridgeRouteMatch | null {
   if (method === "POST" && pathname === "/api/runs") return { kind: "start" };
   const eventsMatch = /^\/api\/runs\/([^/]+)\/events$/.exec(pathname);
-  if (method === "GET" && eventsMatch) return { kind: "events", runId: decodeURIComponent(eventsMatch[1]) };
+  if (method === "GET" && eventsMatch?.[1]) return { kind: "events", runId: decodeURIComponent(eventsMatch[1]) };
   const cancelMatch = /^\/api\/runs\/([^/]+)\/cancel$/.exec(pathname);
-  if (method === "POST" && cancelMatch) return { kind: "cancel", runId: decodeURIComponent(cancelMatch[1]) };
+  if (method === "POST" && cancelMatch?.[1]) return { kind: "cancel", runId: decodeURIComponent(cancelMatch[1]) };
   return null;
 }

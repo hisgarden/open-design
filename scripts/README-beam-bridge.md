@@ -49,7 +49,33 @@ BEAM_DAEMON_URL=ws://127.0.0.1:4000/socket/websocket \
 # Open http://127.0.0.1:17573, start a chat — the run goes through BEAM.
 ```
 
-Note: this requires `pnpm` ≥ 10.33.2. Currently blocked on the user's box (still 10.4.0); `brew upgrade pnpm` resolves it.
+Requires `pnpm` ≥ 10.33.2.
+
+### Forcing DeepInfra (or any other BEAM agent) regardless of UI pick
+
+The JS daemon's `/api/agents` only advertises CLI agents (`claude` / `codex` / `gemini` / etc.), so the React UI never offers `deepinfra` as a picker option. Two env knobs let the bridge override at the seam:
+
+| Env var | Effect |
+|---|---|
+| `BEAM_AGENT_ID` | Forces every run to this BEAM agent id (e.g. `deepinfra`), regardless of what the UI sent. Unset → use the UI's pick via `AGENT_ID_TO_BEAM`. |
+| `BEAM_MODEL` | Default model forwarded to BEAM when the UI doesn't carry one. e.g. `deepseek-ai/DeepSeek-V3.2`, `Qwen/Qwen3-Max`, `zai-org/GLM-5.1`. |
+
+```bash
+# Terminal 1 — BEAM daemon (DEEPINFRA_API_KEY must be in env)
+cd ~/code/beam-design-daemon
+BEAM_DESIGN_WORKSPACE_DIR=/Users/jwen/workspace/ml/open-design \
+  DEEPINFRA_API_KEY="$DEEPINFRA_API_KEY" \
+  mix run --no-halt
+
+# Terminal 2 — web in DeepInfra-only mode
+cd ~/workspace/ml/open-design
+BEAM_DAEMON_URL=ws://127.0.0.1:4000/socket/websocket \
+BEAM_AGENT_ID=deepinfra \
+BEAM_MODEL=deepseek-ai/DeepSeek-V3.2 \
+  pnpm tools-dev run web --daemon-port 17456 --web-port 17573
+```
+
+Now any chat in the UI streams through DeepInfra's OpenAI-compatible API (`https://api.deepinfra.com/v1/openai`) using the chosen model. Models that work today on the Continue config price ladder: `Qwen/Qwen3-Max-Thinking`, `Qwen/Qwen3-Max`, `zai-org/GLM-5.1`, `moonshotai/Kimi-K2.6`, `deepseek-ai/DeepSeek-V4-Pro`, `deepseek-ai/DeepSeek-V3.2` (default-ish), `stepfun-ai/Step-3.5-Flash`, `deepseek-ai/DeepSeek-V4-Flash`.
 
 ### Bridge smoke test (Bun, no pnpm needed)
 
