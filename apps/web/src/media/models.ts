@@ -292,12 +292,27 @@ export const IMAGE_MODELS: MediaModel[] = [
     caps: ['t2i'],
   },
 
-  // DeepInfra — Qwen-Image-Edit (i2i edit, drop-in for templates that
-  // declare gpt-image-2 i2i without paying OpenAI).
+  // DeepInfra-hosted image-edit models. Two tiers today:
+  //
+  //   * wan-2.7-image-edit — Alibaba Wan 2.7, bleeding-edge i2i; closest
+  //     DeepInfra analog to gpt-image-2's edit mode for high-fidelity
+  //     style-transfer templates. Use for template previews and output
+  //     intended for end users.
+  //
+  //   * qwen-image-edit — Qwen-Image-Edit, faster + cheaper but lower
+  //     fidelity. Use for quick smoke tests and prototyping where wire
+  //     correctness matters more than output polish.
+  {
+    id: 'wan-2.7-image-edit',
+    label: 'Wan-2.7-Image-Edit',
+    hint: 'DeepInfra · Alibaba Wan 2.7 · high-fidelity i2i edit',
+    provider: 'deepinfra',
+    caps: ['i2i'],
+  },
   {
     id: 'qwen-image-edit',
     label: 'Qwen-Image-Edit',
-    hint: 'DeepInfra · image-to-image edit (Qwen-Image-Edit)',
+    hint: 'DeepInfra · Qwen i2i · cheaper, lower fidelity',
     provider: 'deepinfra',
     caps: ['i2i'],
   },
