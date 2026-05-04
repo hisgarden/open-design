@@ -116,7 +116,7 @@ const args = parseArgs(process.argv.slice(2));
 // by hand; if the daemon adds a new model, add it here too or the
 // smoke will reject it.
 const I2I_MODELS = new Set(['wan-2.7-image-edit', 'qwen-image-edit']);
-const T2I_MODELS = new Set(['qwen-image-max']);
+const T2I_MODELS = new Set(['qwen-image-max', 'flux-2-klein-4b']);
 
 if (I2I_MODELS.has(args.model) && !args.image) {
   process.stderr.write(
