@@ -81,7 +81,7 @@ The smoke test script is debug scaffolding (per the standing rule). It is not pa
 - ✅ Bridge handlers compile and run (Bun execution path, types validated by `tsc` against the bridge's exported surface)
 - ✅ Smoke test against live BEAM daemon (Claude Code path: 202 + start + agent + end shape correct, terminating in `failed/code=1` due to maintainer's Anthropic billing zero — proves error path)
 - ✅ Smoke test against live BEAM daemon (DeepInfra path: 202 + start + 248 chars of agent text_delta streaming + `end/code=0`)
-- ⚠ Full React UI live demo deferred until `pnpm install` is unblocked (`brew upgrade pnpm` on the maintainer's box). The bridge handlers are byte-for-byte the same code the sidecar will exercise; the only thing the UI demo proves beyond the smoke test is "Next.js + React rendering on top doesn't change anything" — not a contract risk.
+- ✅ Live web sidecar against BEAM daemon (DeepInfra path, `pnpm tools-dev run web` on `:17573`): `POST /api/runs` returned `runId=beam_…` (bridge prefix, confirming the bridge handled it ahead of the JS daemon proxy), `GET /api/runs/:id/events` streamed `start → agent text_delta×N ("Hello, it's nice to meet you.") → end status=succeeded code=0`. This closes the only remaining contract assertion left after the smoke test (Next.js + sidecar plumbing exercises the same bridge code path).
 
 ## Known gaps (deferred follow-ups, not blocking)
 
