@@ -58,7 +58,11 @@ The JS daemon's `/api/agents` only advertises CLI agents (`claude` / `codex` / `
 | Env var | Effect |
 |---|---|
 | `BEAM_AGENT_ID` | Forces every run to this BEAM agent id (e.g. `deepinfra`), regardless of what the UI sent. Unset → use the UI's pick via `AGENT_ID_TO_BEAM`. |
-| `BEAM_MODEL` | Default model forwarded to BEAM when the UI doesn't carry one. e.g. `deepseek-ai/DeepSeek-V3.2`, `Qwen/Qwen3-Max`, `zai-org/GLM-5.1`. |
+| `BEAM_MODEL_TEXT` | Default model for **text-only** chats — the cheap tier. e.g. `deepseek-ai/DeepSeek-V3.2` (~$0.38/1M output). |
+| `BEAM_MODEL_VISION` | Default model when the chat carries **image attachments** — the vision tier. e.g. `Qwen/Qwen3-VL-235B-A22B-Instruct` (~$0.88/1M output). |
+| `BEAM_MODEL` | Legacy single-tier default. Used as the fallback for both tiers when neither `_TEXT` nor `_VISION` is set. |
+| `BEAM_ATTACHMENT_ROOTS` | Colon-separated roots for resolving relative attachment paths. Default: the sidecar's cwd (the open-design tree). |
+| `BEAM_MAX_IMAGE_BYTES` | Hard cap on a single attached image's bytes after read. Default: 5 MiB. Oversize attachments are skipped (the rest of the run continues). |
 
 ```bash
 # Terminal 1 — BEAM daemon (DEEPINFRA_API_KEY must be in env)
@@ -67,15 +71,16 @@ BEAM_DESIGN_WORKSPACE_DIR=/Users/jwen/workspace/ml/open-design \
   DEEPINFRA_API_KEY="$DEEPINFRA_API_KEY" \
   mix run --no-halt
 
-# Terminal 2 — web in DeepInfra-only mode (vision-capable default)
+# Terminal 2 — web in DeepInfra-only mode, tier-aware models
 cd ~/workspace/ml/open-design
 BEAM_DAEMON_URL=ws://127.0.0.1:4000/socket/websocket \
 BEAM_AGENT_ID=deepinfra \
-BEAM_MODEL=Qwen/Qwen3-VL-235B-A22B-Instruct \
+BEAM_MODEL_TEXT=deepseek-ai/DeepSeek-V3.2 \
+BEAM_MODEL_VISION=Qwen/Qwen3-VL-235B-A22B-Instruct \
   pnpm tools-dev run web --daemon-port 17456 --web-port 17573
 ```
 
-Now any chat in the UI streams through DeepInfra's OpenAI-compatible API (`https://api.deepinfra.com/v1/openai`) using the chosen model.
+Now chat in the UI streams through DeepInfra's OpenAI-compatible API (`https://api.deepinfra.com/v1/openai`). The bridge picks the model by request shape: text-only chats hit the cheap text tier, attachments-with-images hit the vision tier — "right model at the right time" instead of paying $0.88/1M output for plain text.
 
 #### Recommended model for Open Design
 
@@ -89,14 +94,13 @@ Open Design's job — extracting palette / typography / layout intent from scree
 | `anthropic/claude-4-opus` (on DeepInfra) | Excellent vision — but routes back to Anthropic upstream and defeats the "escape Anthropic billing" goal of using DeepInfra in the first place. |
 | Continue-config coding models (`DeepSeek-V3.2`, `Qwen3-Max`, `Kimi-K2.6`) | Text-only on DeepInfra's text-generation surface — fine for code-heavy chat but wrong tool for design vision. |
 
-#### Image input — current gap, intentional
+#### Image input end-to-end — done
 
-Setting `BEAM_MODEL` to a vision-capable model is *necessary but not sufficient* for image attachments to reach the model. The BEAM `deep_infra.ex` adapter today sends `messages: [%{role: "user", content: prompt}]` — text-only. To forward image attachments from the React UI's chat (drag-drop / paste), two things must land:
+Image attachments from the UI now flow all the way to the vision model:
 
-1. **BEAM `deep_infra.ex`** — accept an `images` opt and emit OpenAI's content-array form: `content: [{type: "text", text: ...}, {type: "image_url", image_url: {url: "data:..." or remote URL}}]`.
-2. **Bridge** (`apps/web/sidecar/beam-bridge.ts`) — forward `body.attachments` (already in `ChatRequest`) into the `run.start` payload as the channel's `images` field.
-
-Until both ship, the vision model is set up correctly for *text* prompts that *describe* design intent. Image input is a follow-up, separate from the bridge's MVP scope.
+1. **Bridge** (`apps/web/sidecar/beam-bridge.ts`) reads the `attachments?: string[]` paths from the request body, resolves them against `BEAM_ATTACHMENT_ROOTS` (or sidecar cwd), reads the file, base64-encodes it, and forwards as `images: [{base64, mime}]` in the channel `run.start` payload. Non-image attachments and oversize images are skipped with a warning, not a hard fail.
+2. **BEAM `deep_infra.ex`** accepts an `images` opt and switches the user message from a plain string to OpenAI's multimodal content-array form: `content: [{type: "text", text: prompt}, {type: "image_url", image_url: {url: "data:image/png;base64,..."}}]`. Text-only requests keep the cheaper plain-string form.
+3. **Verified e2e**: posting `attachments: ["docs/screenshots/02-question-form.png"]` selects the vision tier (Qwen3-VL-235B) and the model accurately describes the screenshot ("The dominant color is white, and the layout style is a clean, two-column split with a left sidebar for chat/comments and a right panel for design files"), terminating `succeeded code=0`.
 
 ##### Other DeepInfra models worth keeping in mind
 
