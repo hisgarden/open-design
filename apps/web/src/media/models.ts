@@ -314,7 +314,7 @@ export const IMAGE_MODELS: MediaModel[] = [
   {
     id: 'flux-2-klein-4b',
     label: 'FLUX-2-klein-4b',
-    hint: 'DeepInfra · BFL FLUX 2 klein · best prompt adherence + in-image text',
+    hint: 'DeepInfra · BFL FLUX 2 klein · fastest, but in-image text is weak',
     provider: 'deepinfra',
     caps: ['t2i'],
   },
