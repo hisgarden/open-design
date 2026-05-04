@@ -119,12 +119,12 @@ BEAM_DESIGN_WORKSPACE_DIR=/Users/jwen/workspace/ml/open-design \
 # Terminal 2 — exercise the bridge handlers in isolation
 cd ~/workspace/ml/open-design
 BEAM_DAEMON_URL=ws://127.0.0.1:4000/socket/websocket \
-  bun scripts/beam-bridge-smoke.mjs
+  bun scripts/beam-bridge-smoke.ts
 
 # Switch agents:
 BEAM_DAEMON_URL=... BEAM_AGENT_ID=deepinfra \
   BEAM_MESSAGE="..." \
-  bun scripts/beam-bridge-smoke.mjs
+  bun scripts/beam-bridge-smoke.ts
 ```
 
 Expected: `POST /api/runs → 202 runId=...`, then SSE frames in `start → agent text_delta… → end status=succeeded` shape — exactly what `apps/web/src/providers/daemon.ts` parses today.

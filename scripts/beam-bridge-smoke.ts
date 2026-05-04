@@ -16,7 +16,7 @@
 //          mix run --no-halt
 //   2. Run this smoke test:
 //        BEAM_DAEMON_URL=ws://127.0.0.1:4000/socket/websocket \
-//          bun scripts/beam-bridge-smoke.mjs
+//          bun scripts/beam-bridge-smoke.ts
 //
 // Bun is required (Node would need the project's full pnpm install
 // because the bridge imports types from @open-design/contracts; Bun's
