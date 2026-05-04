@@ -18,6 +18,17 @@ defmodule BeamDesign.Agents.DeepInfra do
   Sends to parent:
     * `{:agent_chunk, text}` — one or more text deltas
     * `{:agent_done, %{success: bool, ...}}` — terminal
+
+  Options:
+    * `:model`  — model id; falls back to `@default_model`.
+    * `:images` — list of image references attached to the prompt.
+                  Each entry is one of:
+                    * `%{"url" => "https://..."}` — remote URL (or any `data:` URL)
+                    * `%{"base64" => "...", "mime" => "image/png"}` — inlined bytes
+                  When present, the user message is sent as an OpenAI
+                  multimodal `content` array (`[{type: "text"}, {type: "image_url"}, ...]`)
+                  so vision-language models like `Qwen/Qwen3-VL-235B-A22B-Instruct`
+                  can ground on the attached images.
   """
   @spec start(pid(), String.t(), keyword()) :: {:ok, pid()} | {:error, term()}
   def start(parent, prompt, opts \\ []) when is_pid(parent) and is_binary(prompt) do
@@ -27,15 +38,16 @@ defmodule BeamDesign.Agents.DeepInfra do
 
       key ->
         model = Keyword.get(opts, :model) || @default_model
-        Task.start_link(fn -> stream(parent, key, model, prompt) end)
+        images = Keyword.get(opts, :images, []) |> List.wrap()
+        Task.start_link(fn -> stream(parent, key, model, prompt, images) end)
     end
   end
 
-  defp stream(parent, api_key, model, prompt) do
+  defp stream(parent, api_key, model, prompt, images) do
     body = %{
       model: model,
       stream: true,
-      messages: [%{role: "user", content: prompt}]
+      messages: [%{role: "user", content: build_content(prompt, images)}]
     }
 
     headers = [
@@ -86,6 +98,34 @@ defmodule BeamDesign.Agents.DeepInfra do
   defp api_key do
     System.get_env("DEEPINFRA_API_KEY") || System.get_env("OD_DEEPINFRA_API_KEY")
   end
+
+  # Build the OpenAI `content` field. With no images, send the plain string
+  # form (cheaper to encode, identical semantics for text-only models).
+  # With images, switch to the multimodal content-array form so vision-
+  # language models receive the image alongside the text.
+  defp build_content(prompt, []), do: prompt
+
+  defp build_content(prompt, images) do
+    image_blocks =
+      images
+      |> Enum.flat_map(&image_block/1)
+
+    [%{type: "text", text: prompt} | image_blocks]
+  end
+
+  defp image_block(%{"url" => url}) when is_binary(url) and url != "" do
+    [%{type: "image_url", image_url: %{url: url}}]
+  end
+
+  defp image_block(%{"base64" => b64, "mime" => mime}) when is_binary(b64) and is_binary(mime) do
+    [%{type: "image_url", image_url: %{url: "data:#{mime};base64,#{b64}"}}]
+  end
+
+  defp image_block(%{"base64" => b64}) when is_binary(b64) do
+    image_block(%{"base64" => b64, "mime" => "image/png"})
+  end
+
+  defp image_block(_), do: []
 
   # Build Finch/Mint connection options honoring HTTPS_PROXY (e.g. the
   # OneCLI local gateway at localhost:10255 that intercepts outbound
