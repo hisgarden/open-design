@@ -67,15 +67,40 @@ BEAM_DESIGN_WORKSPACE_DIR=/Users/jwen/workspace/ml/open-design \
   DEEPINFRA_API_KEY="$DEEPINFRA_API_KEY" \
   mix run --no-halt
 
-# Terminal 2 — web in DeepInfra-only mode
+# Terminal 2 — web in DeepInfra-only mode (vision-capable default)
 cd ~/workspace/ml/open-design
 BEAM_DAEMON_URL=ws://127.0.0.1:4000/socket/websocket \
 BEAM_AGENT_ID=deepinfra \
-BEAM_MODEL=deepseek-ai/DeepSeek-V3.2 \
+BEAM_MODEL=Qwen/Qwen3-VL-235B-A22B-Instruct \
   pnpm tools-dev run web --daemon-port 17456 --web-port 17573
 ```
 
-Now any chat in the UI streams through DeepInfra's OpenAI-compatible API (`https://api.deepinfra.com/v1/openai`) using the chosen model. Models that work today on the Continue config price ladder: `Qwen/Qwen3-Max-Thinking`, `Qwen/Qwen3-Max`, `zai-org/GLM-5.1`, `moonshotai/Kimi-K2.6`, `deepseek-ai/DeepSeek-V4-Pro`, `deepseek-ai/DeepSeek-V3.2` (default-ish), `stepfun-ai/Step-3.5-Flash`, `deepseek-ai/DeepSeek-V4-Flash`.
+Now any chat in the UI streams through DeepInfra's OpenAI-compatible API (`https://api.deepinfra.com/v1/openai`) using the chosen model.
+
+#### Recommended model for Open Design
+
+Open Design's job — extracting palette / typography / layout intent from screenshots, sketches, or reference images, and rendering design systems and prototypes from briefs — needs a real **vision-language** flagship, not a text-only coding model. Default:
+
+| Model | Why |
+|---|---|
+| **`Qwen/Qwen3-VL-235B-A22B-Instruct`** | DeepInfra's flagship dedicated vision-language model (235B MoE, ~$0.88/1M output). Purpose-built for visual grounding — UI screenshot reading, color/layout extraction, typography description. Already validated in the user's Continue config with the `image_input` capability. **Set as the bridge's default vision model.** |
+| `zai-org/GLM-4.6V` | Strong runner-up — newer GLM-V family with reasoning toggle. Swap in if Qwen3-VL is degraded. |
+| `Qwen/Qwen3.5-122B-A10B`, `Qwen/Qwen3.6-35B-A3B` | General-purpose multimodal flagships. Better when text dominates and image is incidental. |
+| `anthropic/claude-4-opus` (on DeepInfra) | Excellent vision — but routes back to Anthropic upstream and defeats the "escape Anthropic billing" goal of using DeepInfra in the first place. |
+| Continue-config coding models (`DeepSeek-V3.2`, `Qwen3-Max`, `Kimi-K2.6`) | Text-only on DeepInfra's text-generation surface — fine for code-heavy chat but wrong tool for design vision. |
+
+#### Image input — current gap, intentional
+
+Setting `BEAM_MODEL` to a vision-capable model is *necessary but not sufficient* for image attachments to reach the model. The BEAM `deep_infra.ex` adapter today sends `messages: [%{role: "user", content: prompt}]` — text-only. To forward image attachments from the React UI's chat (drag-drop / paste), two things must land:
+
+1. **BEAM `deep_infra.ex`** — accept an `images` opt and emit OpenAI's content-array form: `content: [{type: "text", text: ...}, {type: "image_url", image_url: {url: "data:..." or remote URL}}]`.
+2. **Bridge** (`apps/web/sidecar/beam-bridge.ts`) — forward `body.attachments` (already in `ChatRequest`) into the `run.start` payload as the channel's `images` field.
+
+Until both ship, the vision model is set up correctly for *text* prompts that *describe* design intent. Image input is a follow-up, separate from the bridge's MVP scope.
+
+##### Other DeepInfra models worth keeping in mind
+
+For specialized non-design needs: `moonshotai/Kimi-K2.6` (multimodal agentic), `deepseek-ai/DeepSeek-V3.2` (cheap text), `Qwen/Qwen3-Max-Thinking` (top-tier reasoning, expensive).
 
 ### Bridge smoke test (Bun, no pnpm needed)
 
