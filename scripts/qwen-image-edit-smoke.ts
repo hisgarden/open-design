@@ -57,10 +57,19 @@ interface SmokeArgs {
   prompt: string | null;
   name: string | null;
   aspect: string;
+  /** Daemon model id from IMAGE_MODELS where provider==='deepinfra'. */
+  model: string;
 }
 
 function parseArgs(argv: string[]): SmokeArgs {
-  const out: SmokeArgs = { image: null, template: null, prompt: null, name: null, aspect: '4:3' };
+  const out: SmokeArgs = {
+    image: null,
+    template: null,
+    prompt: null,
+    name: null,
+    aspect: '4:3',
+    model: 'wan-2.7-image-edit',
+  };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     const next = (): string => {
@@ -76,9 +85,12 @@ function parseArgs(argv: string[]): SmokeArgs {
     else if (a === '--prompt') out.prompt = next();
     else if (a === '--name') out.name = next();
     else if (a === '--aspect') out.aspect = next();
+    else if (a === '--model') out.model = next();
     else if (a === '-h' || a === '--help') {
       process.stdout.write(
-        'Usage: node --experimental-strip-types scripts/qwen-image-edit-smoke.ts --image <path> [--template <json>] [--prompt <str>] [--name <str>] [--aspect 4:3]\n',
+        'Usage: node --experimental-strip-types scripts/qwen-image-edit-smoke.ts --image <path> [--model <id>] [--template <json>] [--prompt <str>] [--name <str>] [--aspect 4:3]\n' +
+          '\n' +
+          'Default --model is wan-2.7-image-edit (best fidelity on DeepInfra). Other options: qwen-image-edit (cheap/fast).\n',
       );
       process.exit(0);
     } else {
@@ -172,11 +184,11 @@ process.stderr.write(`[2/5] staged reference ${refName} -> ${refDest}\n`);
 
 // -------- step 3: kick off generation ----------------------------------
 
-process.stderr.write(`[3/5] POST /api/projects/${projectId}/media/generate (model=qwen-image-edit, aspect=${args.aspect})\n`);
+process.stderr.write(`[3/5] POST /api/projects/${projectId}/media/generate (model=${args.model}, aspect=${args.aspect})\n`);
 
 const genResp = await apiPost(`/api/projects/${projectId}/media/generate`, {
   surface: 'image',
-  model: 'qwen-image-edit',
+  model: args.model,
   prompt,
   image: refName, // project-relative; daemon's resolveProjectImage demands inside-project
   aspect: args.aspect,

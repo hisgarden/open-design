@@ -41,7 +41,8 @@ export const IMAGE_MODELS = [
 
   { id: 'grok-imagine-image', label: 'grok-imagine-image', hint: 'xAI · 2K text-to-image', provider: 'grok', caps: ['t2i'] },
 
-  { id: 'qwen-image-edit', label: 'Qwen-Image-Edit', hint: 'DeepInfra · image-to-image edit (Qwen-Image-Edit)', provider: 'deepinfra', caps: ['i2i'] },
+  { id: 'wan-2.7-image-edit', label: 'Wan-2.7-Image-Edit', hint: 'DeepInfra · Alibaba Wan 2.7 · high-fidelity i2i edit', provider: 'deepinfra', caps: ['i2i'] },
+  { id: 'qwen-image-edit', label: 'Qwen-Image-Edit', hint: 'DeepInfra · Qwen i2i · cheaper, lower fidelity', provider: 'deepinfra', caps: ['i2i'] },
 
   { id: 'flux-1.1-pro', label: 'flux-1.1-pro', hint: 'BFL · flagship', provider: 'bfl', caps: ['t2i', 'i2i'] },
   { id: 'flux-pro', label: 'flux-pro', hint: 'BFL', provider: 'bfl', caps: ['t2i'] },

@@ -1041,14 +1041,27 @@ async function renderGrokImage(ctx, credentials) {
   };
 }
 
-// Provider: DeepInfra. Today only Qwen/Qwen-Image-Edit is wired (image-
-// to-image edit). The DeepInfra model id used at the wire is the
-// repo-style "Qwen/Qwen-Image-Edit"; we map our short model id
-// (`qwen-image-edit`) to that. Endpoint shape is DeepInfra's
-// /v1/inference/<model_id> — POST a JSON body with {prompt, image}, get
-// back {images: [data:image/...;base64,...]}.
-const DEEPINFRA_MODEL_MAP = {
-  'qwen-image-edit': 'Qwen/Qwen-Image-Edit',
+// Provider: DeepInfra. Each entry maps our short model id (the one in
+// IMAGE_MODELS) to the upstream repo-style id and a per-model body
+// builder, since DeepInfra's /v1/inference/<model_id> request schema
+// varies by model — Qwen/Qwen-Image-Edit takes a single `image: <str>`,
+// Wan-AI/Wan2.7-Image-Edit takes `image_urls: [<str>...]`. The schema
+// quirks come from each model's upstream HF/Modelscope card; DeepInfra
+// passes them through verbatim. When adding a new model, look up its
+// schema on the model's DeepInfra page and add the buildBody fn here.
+type DeepInfraImageModel = {
+  remote: string;
+  buildBody: (prompt: string, imageDataUrl: string) => Record<string, unknown>;
+};
+const DEEPINFRA_IMAGE_MODELS: Record<string, DeepInfraImageModel> = {
+  'qwen-image-edit': {
+    remote: 'Qwen/Qwen-Image-Edit',
+    buildBody: (prompt, image) => ({ prompt, image }),
+  },
+  'wan-2.7-image-edit': {
+    remote: 'Wan-AI/Wan2.7-Image-Edit',
+    buildBody: (prompt, image) => ({ prompt, image_urls: [image] }),
+  },
 };
 
 async function renderDeepInfraImage(ctx, credentials) {
@@ -1057,26 +1070,24 @@ async function renderDeepInfraImage(ctx, credentials) {
       'no DeepInfra API key — configure it in Settings or set DEEPINFRA_API_KEY',
     );
   }
-  const remoteModel = DEEPINFRA_MODEL_MAP[ctx.model];
-  if (!remoteModel) {
+  const def = DEEPINFRA_IMAGE_MODELS[ctx.model];
+  if (!def) {
     throw new Error(
-      `deepinfra image: unknown model "${ctx.model}" (only ${Object.keys(DEEPINFRA_MODEL_MAP).join(', ')} wired today)`,
+      `deepinfra image: unknown model "${ctx.model}" (only ${Object.keys(DEEPINFRA_IMAGE_MODELS).join(', ')} wired today)`,
     );
   }
-  // Qwen-Image-Edit is i2i — it requires an input image. Fail loudly if
-  // the request didn't carry one rather than silently fallback to t2i,
-  // which the model doesn't support cleanly anyway.
+  // Every wired DeepInfra image model today is i2i — they require an
+  // input image. Fail loudly if the request didn't carry one rather
+  // than silently fallback to t2i, which these models don't support
+  // cleanly anyway.
   if (!ctx.imageRef || !ctx.imageRef.dataUrl) {
     throw new Error(
-      'deepinfra qwen-image-edit needs a reference image — pass --image or upload one',
+      `deepinfra ${ctx.model} needs a reference image — pass --image or upload one`,
     );
   }
   const baseUrl = (credentials.baseUrl || 'https://api.deepinfra.com/v1').replace(/\/$/, '');
-  const url = `${baseUrl}/inference/${remoteModel}`;
-  const body = {
-    prompt: ctx.prompt || 'rework the given image',
-    image: ctx.imageRef.dataUrl,
-  };
+  const url = `${baseUrl}/inference/${def.remote}`;
+  const body = def.buildBody(ctx.prompt || 'rework the given image', ctx.imageRef.dataUrl);
   const resp = await fetch(url, {
     method: 'POST',
     headers: {
@@ -1120,7 +1131,7 @@ async function renderDeepInfraImage(ctx, credentials) {
   }
   return {
     bytes,
-    providerNote: `deepinfra/${remoteModel} · i2i · ${bytes.length} bytes`,
+    providerNote: `deepinfra/${def.remote} · i2i · ${bytes.length} bytes`,
     suggestedExt: sniffImageExt(bytes),
   };
 }
