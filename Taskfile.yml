@@ -147,6 +147,11 @@ tasks:
     cmds:
       - node --experimental-strip-types scripts/beam-deck-smoke.ts
 
+  smoke:bridge:thread:
+    desc: 'Drive a 2-turn run on the same conversationId. Asserts the second turn sees the first turn''s history (Phase 4C resumption). Needs beam:up + web:up:bridge.'
+    cmds:
+      - node --experimental-strip-types scripts/beam-thread-smoke.ts
+
   # ---- gates -------------------------------------------------------------
 
   check:

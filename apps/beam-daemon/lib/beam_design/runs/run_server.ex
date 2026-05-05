@@ -11,6 +11,7 @@ defmodule BeamDesign.Runs.RunServer do
   use GenServer, restart: :transient
 
   alias BeamDesign.Agents.{ClaudeCode, DeepInfra, PromptComposer, Tools}
+  alias BeamDesign.Conversations
   alias BeamDesign.{DesignSystems, Skills}
 
   @max_tool_iterations 10
@@ -134,6 +135,11 @@ defmodule BeamDesign.Runs.RunServer do
       new_messages = state.messages ++ [assistant_tool_calls_msg] ++ tool_result_msgs
       next_state = %{state | messages: new_messages, tool_iterations: state.tool_iterations + 1}
 
+      # Snapshot mid-conversation so a daemon crash or run cancel
+      # between turns leaves a recoverable trace. Multica calls this
+      # "early pinning"; cheap because the store is in-memory.
+      persist_messages(next_state)
+
       case start_deepinfra_turn(next_state) do
         {:ok, _} ->
           {:noreply, next_state}
@@ -169,6 +175,11 @@ defmodule BeamDesign.Runs.RunServer do
         finish_reason: reason,
         ended_at: System.system_time(:millisecond)
       }
+
+    # Final persist: capture the run's full message history before the
+    # GenServer dies, so the next run on this conversation_id can pick
+    # up exactly where this one left off.
+    persist_messages(state)
 
     send_event(state, "run.terminal", terminal_payload)
     {:stop, :normal, %{state | terminal?: true}}
@@ -262,16 +273,32 @@ defmodule BeamDesign.Runs.RunServer do
   end
 
   defp dispatch_agent("deepinfra", payload, state) do
-    system = compose_system_prompt(payload)
     project_dir = payload["project_dir"]
     model = payload["model"]
 
     user_msg = %{role: "user", content: build_user_content(payload)}
 
+    # Conversation resumption: when both workspace_id + conversation_id
+    # are present and we have prior messages stored, continue that
+    # thread by appending the new user turn to the prior history. The
+    # system prompt + skill body lived at the head of those prior
+    # messages, so we don't re-prepend anything.
+    #
+    # Falling back to a fresh [system, user] when no priors exist —
+    # exactly the Phase B behavior — keeps the no-conversation_id path
+    # (and runs whose first turn this is) unchanged.
     initial_messages =
-      case system do
-        s when is_binary(s) and s != "" -> [%{role: "system", content: s}, user_msg]
-        _ -> [user_msg]
+      case load_prior_messages(state) do
+        {:ok, prior} when prior != [] ->
+          prior ++ [user_msg]
+
+        _ ->
+          system = compose_system_prompt(payload)
+
+          case system do
+            s when is_binary(s) and s != "" -> [%{role: "system", content: s}, user_msg]
+            _ -> [user_msg]
+          end
       end
 
     state2 = %{
@@ -379,6 +406,35 @@ defmodule BeamDesign.Runs.RunServer do
   end
 
   defp lookup_design_system_strings(_), do: {nil, nil}
+
+  # Conversation-resumption hooks. Both no-ops when this run isn't
+  # tagged with a conversation_id; behavior change is gated on the
+  # full {workspace_id, conversation_id} pair being present.
+
+  defp load_prior_messages(%State{
+         workspace_id: ws,
+         conversation_id: conv
+       })
+       when is_binary(ws) and is_binary(conv) do
+    case Conversations.Store.get(ws, conv) do
+      {:ok, %{messages: msgs}} when is_list(msgs) -> {:ok, msgs}
+      _ -> :none
+    end
+  end
+
+  defp load_prior_messages(_), do: :none
+
+  defp persist_messages(%State{
+         workspace_id: ws,
+         conversation_id: conv,
+         messages: msgs
+       })
+       when is_binary(ws) and is_binary(conv) and is_list(msgs) do
+    Conversations.Store.put_messages(ws, conv, msgs)
+    :ok
+  end
+
+  defp persist_messages(_), do: :ok
 
   @impl true
   def handle_info({port, {:data, {flag, line}}}, %State{port: {:port, port}} = state) do

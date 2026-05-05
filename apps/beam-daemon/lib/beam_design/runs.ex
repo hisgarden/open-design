@@ -14,6 +14,7 @@ defmodule BeamDesign.Runs do
       BeamDesign.Workspace,
       BeamDesign.DesignSystems,
       BeamDesign.Skills,
+      BeamDesign.Conversations,
       BeamDesign.Agents
     ],
     exports: [Supervisor]
