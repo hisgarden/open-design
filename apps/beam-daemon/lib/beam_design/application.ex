@@ -11,6 +11,7 @@ defmodule BeamDesign.Application do
       BeamDesign.DesignSystems,
       BeamDesign.Skills,
       BeamDesign.Journal,
+      BeamDesign.Conversations,
       BeamDesign.Runs,
       BeamDesign.Agents,
       BeamDesign.Web
@@ -26,6 +27,7 @@ defmodule BeamDesign.Application do
       BeamDesign.DesignSystems.Supervisor,
       BeamDesign.Skills.Supervisor,
       BeamDesign.Journal.Supervisor,
+      BeamDesign.Conversations.Store,
       BeamDesign.Runs.Supervisor,
       BeamDesign.Web.Endpoint
     ]
