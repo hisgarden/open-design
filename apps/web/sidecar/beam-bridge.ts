@@ -21,7 +21,7 @@
  */
 
 import { EventEmitter } from "node:events";
-import { readFileSync, statSync } from "node:fs";
+import { mkdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { extname, isAbsolute, join, resolve } from "node:path";
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -186,6 +186,37 @@ function translateBeamPayload(beamEvent: string, payload: any):
         data: { code: typeof payload?.exit === "number" ? payload.exit : null, status },
       };
     }
+    case "run.tool_use": {
+      // BEAM emits {id, name, input}. The Anthropic-shape SSE the React
+      // UI consumes (from the Claude Code path) is identical. Pass it
+      // through verbatim — apps/web/src/providers/daemon.ts already
+      // parses this exact frame for tool affordances.
+      return {
+        sseEvent: "agent",
+        data: {
+          type: "tool_use",
+          id: String(payload?.id ?? ""),
+          name: String(payload?.name ?? ""),
+          input: payload?.input ?? {},
+        },
+      };
+    }
+    case "run.tool_result": {
+      // BEAM emits {tool_use_id, content (object), is_error}. The UI
+      // expects content as a string; serialize the object.
+      const rawContent = payload?.content;
+      const content =
+        typeof rawContent === "string" ? rawContent : JSON.stringify(rawContent ?? null);
+      return {
+        sseEvent: "agent",
+        data: {
+          type: "tool_result",
+          toolUseId: String(payload?.tool_use_id ?? ""),
+          content,
+          isError: payload?.is_error === true,
+        },
+      };
+    }
     default:
       return null;
   }
@@ -334,6 +365,62 @@ function generateRunId(): string {
   return "beam_" + Math.random().toString(16).slice(2, 18);
 }
 
+/**
+ * Resolve the absolute path to a project's working directory under the
+ * JS daemon's data dir (defaults to <repo>/.od/projects/<id>). The
+ * BEAM RunServer uses this as the sandbox root for write_file /
+ * read_file / list_files tool calls. Returns null when projectId is
+ * missing or the directory doesn't exist — Phase B's tools won't be
+ * advertised in that case and the run degrades to chat-only output.
+ *
+ * Mirrors `apps/daemon/src/server.ts#resolveDataDir` so the bridge and
+ * daemon agree on the path without an IPC round-trip.
+ */
+function resolveProjectDir(projectId: string | null): string | null {
+  if (projectId == null || projectId === "") return null;
+
+  // Reject anything that looks like a path component to keep the
+  // mkdirSync below scoped to <dataDir>/projects/<id> only.
+  if (!/^[A-Za-z0-9._-]{1,128}$/.test(projectId)) return null;
+
+  const dataDir = resolveDataDirSync(process.env.OD_DATA_DIR);
+  if (dataDir == null) return null;
+
+  const candidate = resolve(dataDir, "projects", projectId);
+  // The JS daemon's POST /api/projects only inserts a DB row; it
+  // doesn't mkdir until the first artifact lands. Materialize the dir
+  // here so tool_use writes have somewhere to land. Idempotent.
+  try {
+    mkdirSync(candidate, { recursive: true });
+  } catch {
+    return null;
+  }
+  try {
+    const st = statSync(candidate);
+    if (!st.isDirectory()) return null;
+    return candidate;
+  } catch {
+    return null;
+  }
+}
+
+function resolveDataDirSync(raw: string | undefined): string | null {
+  // process.cwd() is the web sidecar's working directory; tools-dev
+  // launches it from the repo root so this matches what the JS daemon
+  // sees as PROJECT_ROOT.
+  const projectRoot = process.cwd();
+  if (raw == null || raw === "") return resolve(projectRoot, ".od");
+
+  const expanded = raw.startsWith("~/") ? join(homedir(), raw.slice(2)) : raw;
+  const absolute = isAbsolute(expanded) ? expanded : resolve(projectRoot, expanded);
+  try {
+    const st = statSync(absolute);
+    return st.isDirectory() ? absolute : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function handleBeamRunStart(
   config: BeamBridgeConfig,
   req: IncomingMessage,
@@ -426,6 +513,7 @@ export async function handleBeamRunStart(
       if (!joined) {
         if ((frame.payload as any)?.status === "ok") {
           joined = true;
+          const projectDir = resolveProjectDir(body.projectId ?? null);
           send("run.start", {
             skill_id: body.skillId ?? "html-ppt",
             design_system_id: body.designSystemId ?? "obsidian-claude-gradient",
@@ -433,6 +521,7 @@ export async function handleBeamRunStart(
             agent: beamAgent,
             ...(beamModel ? { model: beamModel } : {}),
             ...(images.length > 0 ? { images } : {}),
+            ...(projectDir != null ? { project_dir: projectDir } : {}),
           });
         } else {
           terminate(run, {

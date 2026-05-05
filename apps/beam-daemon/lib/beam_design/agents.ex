@@ -8,6 +8,6 @@ defmodule BeamDesign.Agents do
   surface shifts, only its adapter changes.
   """
   use Boundary,
-    deps: [BeamDesign.Protocol],
-    exports: [ClaudeCode, DeepInfra, PromptComposer, Registry]
+    deps: [BeamDesign.Protocol, BeamDesign.Workspace],
+    exports: [ClaudeCode, DeepInfra, PromptComposer, Registry, Tools]
 end

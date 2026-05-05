@@ -10,8 +10,10 @@ defmodule BeamDesign.Runs.RunServer do
   """
   use GenServer, restart: :transient
 
-  alias BeamDesign.Agents.{ClaudeCode, DeepInfra, PromptComposer}
+  alias BeamDesign.Agents.{ClaudeCode, DeepInfra, PromptComposer, Tools}
   alias BeamDesign.{DesignSystems, Skills}
+
+  @max_tool_iterations 10
 
   defmodule State do
     @moduledoc false
@@ -24,7 +26,12 @@ defmodule BeamDesign.Runs.RunServer do
       :started_at,
       :line_buffer,
       :line_count,
-      :terminal?
+      :terminal?,
+      # DeepInfra tool-loop state. Nil for non-deepinfra agents.
+      :model,
+      :messages,
+      :project_dir,
+      :tool_iterations
     ]
   end
 
@@ -48,19 +55,23 @@ defmodule BeamDesign.Runs.RunServer do
       started_at: System.system_time(:millisecond),
       line_buffer: "",
       line_count: 0,
-      terminal?: false
+      terminal?: false,
+      model: nil,
+      messages: [],
+      project_dir: nil,
+      tool_iterations: 0
     }
 
-    case dispatch_agent(agent, payload) do
-      {:ok, owner_ref} ->
-        send_event(state, "run.started", %{
+    case dispatch_agent(agent, payload, state) do
+      {:ok, {owner_ref, state2}} ->
+        send_event(state2, "run.started", %{
           run_id: run_id,
           agent: agent,
-          model: payload["model"],
-          started_at: state.started_at
+          model: state2.model || payload["model"],
+          started_at: state2.started_at
         })
 
-        {:ok, %{state | port: owner_ref}}
+        {:ok, %{state2 | port: owner_ref}}
 
       {:error, reason} ->
         send_event(state, "run.terminal", %{
@@ -75,10 +86,83 @@ defmodule BeamDesign.Runs.RunServer do
     end
   end
 
-  # DeepInfra streaming events: text chunks then terminal {:agent_done, ...}.
+  # DeepInfra streaming events.
+  #
+  # - `{:agent_chunk, text}` — a content delta; relay as run.output.
+  # - `{:agent_tool_calls, calls}` — model wants to call tools. Execute
+  #   each, append (assistant tool_calls + tool result) to history, kick
+  #   off the next turn. Only fires when `:agent_turn_done` reason ==
+  #   "tool_calls".
+  # - `{:agent_turn_done, %{finish_reason}}` — every turn ends with this.
+  #   "stop" / "length" → emit run.terminal. "tool_calls" → no-op
+  #   (next turn already started in :agent_tool_calls handler).
+  # - `{:agent_done, %{success: false, ...}}` — only on transport failure
+  #   (4xx/5xx, connection refused). Always terminates the run.
   def handle_info({:agent_chunk, text}, state) when is_binary(text) do
     send_event(state, "run.output", %{run_id: state.run_id, kind: "agent", delta: text})
     {:noreply, state}
+  end
+
+  def handle_info({:agent_tool_calls, calls}, state) when is_list(calls) do
+    if state.tool_iterations >= @max_tool_iterations do
+      send_event(state, "run.terminal", %{
+        run_id: state.run_id,
+        status: "failed",
+        exit: -1,
+        error: "max_tool_iterations (#{@max_tool_iterations}) exceeded",
+        ended_at: System.system_time(:millisecond)
+      })
+
+      {:stop, :normal, %{state | terminal?: true}}
+    else
+      assistant_tool_calls_msg = build_assistant_tool_calls_message(calls)
+
+      tool_result_msgs =
+        Enum.map(calls, fn call ->
+          execute_and_emit_tool_call(state, call)
+        end)
+
+      new_messages = state.messages ++ [assistant_tool_calls_msg] ++ tool_result_msgs
+      next_state = %{state | messages: new_messages, tool_iterations: state.tool_iterations + 1}
+
+      case start_deepinfra_turn(next_state) do
+        {:ok, _} ->
+          {:noreply, next_state}
+
+        {:error, reason} ->
+          send_event(state, "run.terminal", %{
+            run_id: state.run_id,
+            status: "failed",
+            exit: -1,
+            error: inspect(reason),
+            ended_at: System.system_time(:millisecond)
+          })
+
+          {:stop, :normal, %{state | terminal?: true}}
+      end
+    end
+  end
+
+  def handle_info({:agent_turn_done, %{finish_reason: "tool_calls"}}, state) do
+    # The :agent_tool_calls handler already started the next turn.
+    {:noreply, state}
+  end
+
+  def handle_info({:agent_turn_done, %{finish_reason: reason}}, state) do
+    # "stop" | "length" | other — terminal for a non-tool-calling turn.
+    status = if reason == "stop", do: "succeeded", else: "failed"
+
+    terminal_payload =
+      %{
+        run_id: state.run_id,
+        status: status,
+        exit: if(status == "succeeded", do: 0, else: 1),
+        finish_reason: reason,
+        ended_at: System.system_time(:millisecond)
+      }
+
+    send_event(state, "run.terminal", terminal_payload)
+    {:stop, :normal, %{state | terminal?: true}}
   end
 
   def handle_info({:agent_done, %{success: success} = result}, state) do
@@ -95,27 +179,157 @@ defmodule BeamDesign.Runs.RunServer do
     {:stop, :normal, %{state | terminal?: true}}
   end
 
-  defp dispatch_agent("claude-code", payload) do
+  # Build the OpenAI-shape `role: "assistant", tool_calls: [...]` message
+  # we have to send back to the API on the next turn so the model can
+  # follow its own thread.
+  # OpenAI's spec allows `content: null` here, but several
+  # OpenAI-compatible providers (including some DeepInfra-hosted
+  # variants) reject the null and silently drop the request. Send an
+  # empty string instead — semantically identical, universally accepted.
+  defp build_assistant_tool_calls_message(calls) do
+    %{
+      role: "assistant",
+      content: "",
+      tool_calls:
+        Enum.map(calls, fn c ->
+          %{
+            id: c.id,
+            type: "function",
+            function: %{
+              name: c.name,
+              arguments: c.arguments
+            }
+          }
+        end)
+    }
+  end
+
+  # Execute one tool call against the project sandbox, emit
+  # `run.tool_use` + `run.tool_result` channel events for UI surfacing,
+  # and return the corresponding `role: "tool"` message to feed back
+  # into the next turn's request.
+  defp execute_and_emit_tool_call(state, %{id: id, name: name, arguments: args_json}) do
+    args =
+      case Jason.decode(args_json || "") do
+        {:ok, %{} = m} -> m
+        _ -> %{}
+      end
+
+    send_event(state, "run.tool_use", %{
+      run_id: state.run_id,
+      id: id,
+      name: name,
+      input: args
+    })
+
+    result_map =
+      try do
+        Tools.execute(name, args, state.project_dir || "")
+      rescue
+        e -> %{error: "tool_exception: #{Exception.message(e)}"}
+      end
+
+    is_error = Map.has_key?(result_map, :error)
+
+    send_event(state, "run.tool_result", %{
+      run_id: state.run_id,
+      tool_use_id: id,
+      content: result_map,
+      is_error: is_error
+    })
+
+    %{
+      role: "tool",
+      tool_call_id: id,
+      content: Jason.encode!(result_map)
+    }
+  end
+
+  defp dispatch_agent("claude-code", payload, state) do
     case ClaudeCode.start(payload["prompt"], model: payload["model"]) do
-      {:ok, port} -> {:ok, {:port, port}}
+      {:ok, port} -> {:ok, {{:port, port}, state}}
       {:error, _} = err -> err
     end
   end
 
-  defp dispatch_agent("deepinfra", payload) do
+  defp dispatch_agent("deepinfra", payload, state) do
     system = compose_system_prompt(payload)
+    project_dir = payload["project_dir"]
+    model = payload["model"]
 
-    case DeepInfra.start(self(), payload["prompt"],
-           model: payload["model"],
-           images: payload["images"] || [],
-           system: system
-         ) do
-      {:ok, task_pid} -> {:ok, {:task, task_pid}}
+    user_msg = %{role: "user", content: build_user_content(payload)}
+
+    initial_messages =
+      case system do
+        s when is_binary(s) and s != "" -> [%{role: "system", content: s}, user_msg]
+        _ -> [user_msg]
+      end
+
+    state2 = %{
+      state
+      | model: model,
+        messages: initial_messages,
+        project_dir: project_dir,
+        tool_iterations: 0
+    }
+
+    case start_deepinfra_turn(state2) do
+      {:ok, task_pid} -> {:ok, {{:task, task_pid}, state2}}
       {:error, _} = err -> err
     end
   end
 
-  defp dispatch_agent(other, _payload), do: {:error, {:unknown_agent, other}}
+  defp dispatch_agent(other, _payload, _state), do: {:error, {:unknown_agent, other}}
+
+  # Plain string for text-only chat; OpenAI-style multimodal array when
+  # images are attached. Mirrors `DeepInfra.build_content/2` (now
+  # private in the agent) — duplicated here so the runserver can build
+  # the user message once and reuse it across tool-loop turns.
+  defp build_user_content(payload) do
+    case payload["images"] || [] do
+      [] ->
+        payload["prompt"]
+
+      images ->
+        text_part = %{type: "text", text: payload["prompt"]}
+
+        image_parts =
+          Enum.flat_map(images, fn
+            %{"url" => url} when is_binary(url) and url != "" ->
+              [%{type: "image_url", image_url: %{url: url}}]
+
+            %{"base64" => b64, "mime" => mime} when is_binary(b64) and is_binary(mime) ->
+              [%{type: "image_url", image_url: %{url: "data:#{mime};base64,#{b64}"}}]
+
+            %{"base64" => b64} when is_binary(b64) ->
+              [%{type: "image_url", image_url: %{url: "data:image/png;base64,#{b64}"}}]
+
+            _ ->
+              []
+          end)
+
+        [text_part | image_parts]
+    end
+  end
+
+  # Kick off one DeepInfra turn with the current message history. Tools
+  # are advertised only when the run has a project_dir (Phase B's
+  # sandbox needs somewhere to write); without it, the model gets a
+  # plain chat completion (Phase A behavior).
+  defp start_deepinfra_turn(%State{project_dir: project_dir, model: model, messages: messages}) do
+    tools =
+      if is_binary(project_dir) and project_dir != "" do
+        Tools.definitions()
+      else
+        []
+      end
+
+    DeepInfra.start_turn(self(),
+      messages: messages,
+      model: model,
+      tools: tools
+    )
+  end
 
   # Pull the named skill + design system off the loaders (already running
   # under the application supervisor) and compose them into one system

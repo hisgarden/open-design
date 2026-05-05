@@ -7,5 +7,5 @@ defmodule BeamDesign.Workspace do
   the maintainer's `~/code` workshop (R7 / R17). Other slow-layer modules
   consume the resolved paths from here.
   """
-  use Boundary, deps: [BeamDesign.Protocol], exports: [Config]
+  use Boundary, deps: [BeamDesign.Protocol], exports: [Config, Sandbox]
 end

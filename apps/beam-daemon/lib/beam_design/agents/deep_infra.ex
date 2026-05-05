@@ -47,6 +47,45 @@ defmodule BeamDesign.Agents.DeepInfra do
     end
   end
 
+  @doc """
+  Run one tool-loop turn. Caller supplies the full message history
+  (system + user + prior assistant tool_calls + tool results); we send
+  it as-is, advertise `tools` if non-empty, and stream events back to
+  `parent` until the model produces a `finish_reason`.
+
+  Sends to parent (each turn):
+    * `{:agent_chunk, text}`              — text delta
+    * `{:agent_tool_calls, calls}`        — when finish_reason == "tool_calls".
+                                            `calls` is a list of
+                                            `%{id, name, arguments}` (arguments
+                                             are the raw JSON string the model
+                                             emitted; caller decodes)
+    * `{:agent_turn_done, %{finish_reason}}` — every turn ends with this
+                                                (finish_reason: "stop" |
+                                                 "tool_calls" | "length" | ...)
+    * `{:agent_done, %{success: bool, error?: String.t()}}` — only on
+      transport / 4xx / 5xx failure. Successful turns send `:agent_turn_done`
+      and let the caller decide whether to start another turn.
+
+  Options:
+    * `:model`  — DeepInfra model id; required.
+    * `:tools`  — list of OpenAI tool definitions (see `BeamDesign.Agents.Tools.definitions/0`).
+                  Empty / missing means no tool calling.
+  """
+  @spec start_turn(pid(), keyword()) :: {:ok, pid()} | {:error, term()}
+  def start_turn(parent, opts) when is_pid(parent) do
+    case api_key() do
+      nil ->
+        {:error, :missing_api_key}
+
+      key ->
+        messages = Keyword.fetch!(opts, :messages)
+        model = Keyword.get(opts, :model) || @default_model
+        tools = Keyword.get(opts, :tools, [])
+        Task.start_link(fn -> stream_turn(parent, key, model, messages, tools) end)
+    end
+  end
+
   defp stream(parent, api_key, model, prompt, images, system) do
     user_msg = %{role: "user", content: build_content(prompt, images)}
 
@@ -106,6 +145,143 @@ defmodule BeamDesign.Agents.DeepInfra do
         send(parent, {:agent_done, %{success: false, error: Exception.message(exception)}})
     end
   end
+
+  # One tool-loop turn. Streams text deltas to `parent`, accumulates
+  # tool_call argument fragments, and on finish_reason emits the
+  # appropriate terminal message: `{:agent_tool_calls, ...}` if the
+  # model wants to call tools, then always a `{:agent_turn_done, ...}`
+  # so the caller can decide whether to start the next turn.
+  defp stream_turn(parent, api_key, model, messages, tools) do
+    body =
+      %{model: model, stream: true, messages: messages}
+      |> maybe_put_tools(tools)
+
+    headers = [
+      {"authorization", "Bearer #{api_key}"},
+      {"content-type", "application/json"},
+      {"accept", "text/event-stream"}
+    ]
+
+    # Two stateful accumulators in resp.private:
+    #   :sse_buffer    — leftover bytes between SSE frames
+    #   :tool_calls    — %{index => %{id, name, arguments_io}} where
+    #                    arguments_io is an IO list of chunks (joined
+    #                    once at finish_reason time)
+    into = fn {:data, chunk}, {req, resp} ->
+      buffer = (Map.get(resp.private, :sse_buffer) || "") <> chunk
+      {events, leftover} = parse_sse_buffer(buffer)
+      tool_calls = Map.get(resp.private, :tool_calls) || %{}
+
+      tool_calls = Enum.reduce(events, tool_calls, &handle_event(parent, &1, &2))
+
+      resp =
+        resp
+        |> Req.Response.put_private(:sse_buffer, leftover)
+        |> Req.Response.put_private(:tool_calls, tool_calls)
+
+      {:cont, {req, resp}}
+    end
+
+    result =
+      Req.post(@endpoint,
+        json: body,
+        headers: headers,
+        receive_timeout: 60_000,
+        connect_options: connect_options(),
+        into: into
+      )
+
+    case result do
+      {:ok, %Req.Response{status: 200}} ->
+        # If the stream ended without a finish_reason fire, synthesize
+        # a turn_done so the RunServer doesn't hang. Some providers cut
+        # SSE off after the last delta without emitting an empty frame
+        # carrying finish_reason.
+        unless Process.get(:finish_emitted) == true do
+          require Logger
+          Logger.warning("[deep_infra] stream ended without finish_reason; synthesizing :agent_turn_done")
+          send(parent, {:agent_turn_done, %{finish_reason: "stop"}})
+        end
+
+      {:ok, %Req.Response{status: status, body: body}} ->
+        require Logger
+        Logger.error("[deep_infra] HTTP #{status} from DeepInfra: #{inspect(body)}")
+        send(parent, {:agent_done, %{success: false, error: "HTTP #{status}: #{inspect(body)}"}})
+
+      {:error, exception} ->
+        require Logger
+        Logger.error("[deep_infra] transport error: #{Exception.message(exception)}")
+        send(parent, {:agent_done, %{success: false, error: Exception.message(exception)}})
+    end
+  end
+
+  defp maybe_put_tools(body, []), do: body
+  defp maybe_put_tools(body, nil), do: body
+  defp maybe_put_tools(body, tools) when is_list(tools), do: Map.put(body, :tools, tools)
+
+  # Per-event handler for stream_turn. Mutates the tool_calls accumulator,
+  # streams text deltas, and on `:finish` emits the consolidated
+  # `:agent_tool_calls` (when reason == "tool_calls") followed by an
+  # `:agent_turn_done` so the caller knows the turn ended.
+  defp handle_event(parent, {:delta, text}, acc) do
+    send(parent, {:agent_chunk, text})
+    acc
+  end
+
+  defp handle_event(_parent, {:tool_call_delta, %{index: index} = frag}, acc) do
+    current =
+      Map.get(acc, index, %{id: nil, name: nil, arguments_io: []})
+
+    updated = %{
+      id: frag.id || current.id,
+      name: frag.name || current.name,
+      arguments_io:
+        case frag.arguments_chunk do
+          chunk when is_binary(chunk) -> [current.arguments_io, chunk]
+          _ -> current.arguments_io
+        end
+    }
+
+    Map.put(acc, index, updated)
+  end
+
+  defp handle_event(parent, {:finish, reason}, acc) do
+    case reason do
+      "tool_calls" ->
+        calls =
+          acc
+          |> Enum.sort_by(fn {idx, _} -> idx end)
+          |> Enum.map(fn {idx, c} ->
+            # Qwen3-Max and some other DeepInfra-hosted models stream
+            # tool_calls without an `id` field. Without an id, the
+            # tool_result message we feed back can't be correlated by
+            # the model, and it loops on the same call. Synthesize a
+            # stable id when missing.
+            id =
+              case c.id do
+                s when is_binary(s) and s != "" -> s
+                _ -> "call_synth_#{idx}_#{System.unique_integer([:positive])}"
+              end
+
+            %{
+              id: id,
+              name: c.name,
+              arguments: IO.iodata_to_binary(c.arguments_io)
+            }
+          end)
+
+        send(parent, {:agent_tool_calls, calls})
+
+      _ ->
+        :ok
+    end
+
+    send(parent, {:agent_turn_done, %{finish_reason: reason}})
+    Process.put(:finish_emitted, true)
+    acc
+  end
+
+  defp handle_event(_parent, _other, acc), do: acc
 
   defp api_key do
     System.get_env("DEEPINFRA_API_KEY") || System.get_env("OD_DEEPINFRA_API_KEY")
@@ -252,8 +428,16 @@ defmodule BeamDesign.Agents.DeepInfra do
 
   defp parse_data_line("data: " <> json) do
     case Jason.decode(json) do
-      {:ok, %{"choices" => [%{"delta" => %{"content" => content}} | _]}} when is_binary(content) ->
-        [{:delta, content}]
+      {:ok, %{"choices" => [choice | _]}} ->
+        delta = Map.get(choice, "delta") || %{}
+
+        events =
+          []
+          |> append_content(Map.get(delta, "content"))
+          |> append_tool_call_deltas(Map.get(delta, "tool_calls"))
+          |> append_finish(Map.get(choice, "finish_reason"))
+
+        if events == [], do: [:other], else: events
 
       _ ->
         [:other]
@@ -261,4 +445,31 @@ defmodule BeamDesign.Agents.DeepInfra do
   end
 
   defp parse_data_line(_), do: []
+
+  defp append_content(events, c) when is_binary(c) and c != "",
+    do: events ++ [{:delta, c}]
+
+  defp append_content(events, _), do: events
+
+  defp append_tool_call_deltas(events, calls) when is_list(calls) do
+    events ++
+      Enum.map(calls, fn call ->
+        function = Map.get(call, "function") || %{}
+
+        {:tool_call_delta,
+         %{
+           index: Map.get(call, "index"),
+           id: Map.get(call, "id"),
+           name: Map.get(function, "name"),
+           arguments_chunk: Map.get(function, "arguments")
+         }}
+      end)
+  end
+
+  defp append_tool_call_deltas(events, _), do: events
+
+  defp append_finish(events, reason) when is_binary(reason) and reason != "",
+    do: events ++ [{:finish, reason}]
+
+  defp append_finish(events, _), do: events
 end

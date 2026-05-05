@@ -138,9 +138,14 @@ tasks:
         RUN=$(curl -sS -X POST http://127.0.0.1:{{.WEB_PORT}}/api/runs \
           -H 'content-type: application/json' \
           -d '{"agentId":"claude","message":"reply with one sentence: bridge smoke ok","skillId":"html-ppt","designSystemId":"obsidian-claude-gradient"}')
-        RID=$(echo "$RUN" | sed -n 's/.*"runId"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+        RID=$(python3 -c "import json,sys; print(json.loads('$RUN')['runId'])")
         echo "runId=$RID"
         curl -sS -N -m 30 "http://127.0.0.1:{{.WEB_PORT}}/api/runs/$RID/events" 2>&1 | head -20
+
+  smoke:deck:
+    desc: 'Drive an end-to-end deck-generation run through the BEAM tool loop. Asserts at least one file was written under <project_dir>. Needs beam:up + web:up:bridge + DEEPINFRA_API_KEY in BEAM env.'
+    cmds:
+      - node --experimental-strip-types scripts/beam-deck-smoke.ts
 
   # ---- gates -------------------------------------------------------------
 
