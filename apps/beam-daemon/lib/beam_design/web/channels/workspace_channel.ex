@@ -61,6 +61,7 @@ defmodule BeamDesign.Web.WorkspaceChannel do
       design_systems_count: DesignSystems.Loader.count(),
       skills_count: Skills.Loader.count(),
       workspace_dir: Config.workspace_dir(),
+      daemon_id: BeamDesign.Auth.DaemonId.current(),
       synthetic_runs: synthetic_runs?()
     })
 
