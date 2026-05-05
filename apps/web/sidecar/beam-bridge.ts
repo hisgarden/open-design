@@ -335,18 +335,28 @@ function readImageAttachments(
 }
 
 /**
- * Pick the model based on whether the request carries images:
- *   - request.model (UI explicit) wins outright if set
- *   - else BEAM_MODEL_VISION when there are images
- *   - else BEAM_MODEL_TEXT
- *   - else null (BEAM falls back to its own default model)
+ * Pick the model based on whether the request carries images and
+ * whether the BEAM_AGENT_ID override is in play.
+ *
+ *   - When `agentOverride` is set, BEAM is going to route every run
+ *     through that agent (typically `deepinfra`) regardless of what
+ *     the UI's agent picker said. The UI's `model` field is naming
+ *     the *prior* agent's vocab (e.g. `claude-sonnet-4-5`), which
+ *     DeepInfra doesn't host. Honoring `bodyModel` here would 4xx
+ *     every run. Drop it; let `BEAM_MODEL_TEXT` / `BEAM_MODEL_VISION`
+ *     speak for the override.
+ *   - Without an override, the request stays under whatever agent the
+ *     UI selected, and `bodyModel` is the right choice.
+ *   - Fallback: vision when there are images, else text, else null
+ *     (BEAM falls back to its own default).
  */
 function pickModel(
   config: BeamBridgeConfig,
   bodyModel: string | null | undefined,
   hasImages: boolean,
 ): string | null {
-  if (bodyModel != null && bodyModel !== "") return bodyModel;
+  const overriding = config.agentOverride != null && config.agentOverride !== "";
+  if (!overriding && bodyModel != null && bodyModel !== "") return bodyModel;
   return hasImages ? config.modelVision : config.modelText;
 }
 

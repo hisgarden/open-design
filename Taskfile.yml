@@ -25,7 +25,13 @@ env:
   # NOT exported globally so web:up (no bridge) stays clean.
   BEAM_DAEMON_URL: ws://127.0.0.1:4000/socket/websocket
   BEAM_AGENT_ID: deepinfra
-  BEAM_MODEL_TEXT: deepseek-ai/DeepSeek-V4-Flash
+  # V4-Pro is slower but reliably round-trips long tool_call content
+  # arguments (the deck-generation path needs ~5-10KB content args).
+  # V4-Flash is faster but truncates content to "" on big calls — see
+  # docs/plans/2026-05-04-003 model-selection notes. Override per-run
+  # via the request body's `model` field once the bridge stops dropping
+  # it (see pickModel in apps/web/sidecar/beam-bridge.ts).
+  BEAM_MODEL_TEXT: deepseek-ai/DeepSeek-V4-Pro
   BEAM_MODEL_VISION: Qwen/Qwen3-VL-235B-A22B-Instruct
 
 tasks:
