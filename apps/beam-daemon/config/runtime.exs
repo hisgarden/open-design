@@ -18,11 +18,23 @@ config :beam_design,
 
 # Loopback bind only (R18). Endpoint http: pinned to 127.0.0.1; no other
 # code path may bind a network socket without going through the Endpoint.
-config :beam_design, BeamDesign.Web.Endpoint,
-  http: [
-    ip: {127, 0, 0, 1},
-    port: String.to_integer(System.get_env("BEAM_DESIGN_PORT") || "4000")
-  ],
-  secret_key_base:
-    System.get_env("BEAM_DESIGN_SECRET_KEY_BASE") ||
-      :crypto.strong_rand_bytes(48) |> Base.encode64()
+# Skip in :test so config/test.exs's port: 0 ("pick any free") wins —
+# otherwise unit tests collide with a live `mix run` daemon already on
+# whatever port BEAM_DESIGN_PORT (or 4000) names.
+if config_env() != :test do
+  config :beam_design, BeamDesign.Web.Endpoint,
+    http: [
+      ip: {127, 0, 0, 1},
+      port: String.to_integer(System.get_env("BEAM_DESIGN_PORT") || "4000")
+    ],
+    secret_key_base:
+      System.get_env("BEAM_DESIGN_SECRET_KEY_BASE") ||
+        :crypto.strong_rand_bytes(48) |> Base.encode64()
+end
+
+# Tests still need a secret_key_base; supply a deterministic one so
+# Phoenix.Endpoint doesn't crash on startup.
+if config_env() == :test do
+  config :beam_design, BeamDesign.Web.Endpoint,
+    secret_key_base: String.duplicate("a", 64)
+end

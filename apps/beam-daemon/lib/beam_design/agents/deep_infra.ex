@@ -29,6 +29,9 @@ defmodule BeamDesign.Agents.DeepInfra do
                   multimodal `content` array (`[{type: "text"}, {type: "image_url"}, ...]`)
                   so vision-language models like `Qwen/Qwen3-VL-235B-A22B-Instruct`
                   can ground on the attached images.
+    * `:system` — optional system prompt prepended to the messages array.
+                  Composed by `BeamDesign.Agents.PromptComposer` from the
+                  active skill + design system; nil when neither is set.
   """
   @spec start(pid(), String.t(), keyword()) :: {:ok, pid()} | {:error, term()}
   def start(parent, prompt, opts \\ []) when is_pid(parent) and is_binary(prompt) do
@@ -39,15 +42,24 @@ defmodule BeamDesign.Agents.DeepInfra do
       key ->
         model = Keyword.get(opts, :model) || @default_model
         images = Keyword.get(opts, :images, []) |> List.wrap()
-        Task.start_link(fn -> stream(parent, key, model, prompt, images) end)
+        system = Keyword.get(opts, :system)
+        Task.start_link(fn -> stream(parent, key, model, prompt, images, system) end)
     end
   end
 
-  defp stream(parent, api_key, model, prompt, images) do
+  defp stream(parent, api_key, model, prompt, images, system) do
+    user_msg = %{role: "user", content: build_content(prompt, images)}
+
+    messages =
+      case system do
+        s when is_binary(s) and s != "" -> [%{role: "system", content: s}, user_msg]
+        _ -> [user_msg]
+      end
+
     body = %{
       model: model,
       stream: true,
-      messages: [%{role: "user", content: build_content(prompt, images)}]
+      messages: messages
     }
 
     headers = [

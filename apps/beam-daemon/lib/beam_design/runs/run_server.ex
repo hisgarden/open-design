@@ -10,7 +10,8 @@ defmodule BeamDesign.Runs.RunServer do
   """
   use GenServer, restart: :transient
 
-  alias BeamDesign.Agents.{ClaudeCode, DeepInfra}
+  alias BeamDesign.Agents.{ClaudeCode, DeepInfra, PromptComposer}
+  alias BeamDesign.{DesignSystems, Skills}
 
   defmodule State do
     @moduledoc false
@@ -102,9 +103,12 @@ defmodule BeamDesign.Runs.RunServer do
   end
 
   defp dispatch_agent("deepinfra", payload) do
+    system = compose_system_prompt(payload)
+
     case DeepInfra.start(self(), payload["prompt"],
            model: payload["model"],
-           images: payload["images"] || []
+           images: payload["images"] || [],
+           system: system
          ) do
       {:ok, task_pid} -> {:ok, {:task, task_pid}}
       {:error, _} = err -> err
@@ -112,6 +116,46 @@ defmodule BeamDesign.Runs.RunServer do
   end
 
   defp dispatch_agent(other, _payload), do: {:error, {:unknown_agent, other}}
+
+  # Pull the named skill + design system off the loaders (already running
+  # under the application supervisor) and compose them into one system
+  # message. Returns nil when neither is set; DeepInfra.start then sends
+  # a no-system request unchanged.
+  #
+  # We extract the body/name strings here (in Runs, which is allowed to
+  # depend on Skills and DesignSystems) and hand plain strings to
+  # PromptComposer (in Agents, which is not).
+  defp compose_system_prompt(payload) do
+    {skill_name, skill_body} = lookup_skill_strings(payload["skill_id"])
+
+    {design_system_title, design_system_body} =
+      lookup_design_system_strings(payload["design_system_id"])
+
+    PromptComposer.build(%{
+      skill_name: skill_name,
+      skill_body: skill_body,
+      design_system_title: design_system_title,
+      design_system_body: design_system_body
+    })
+  end
+
+  defp lookup_skill_strings(id) when is_binary(id) and id != "" do
+    case Skills.Loader.get(id) do
+      {:ok, skill} -> {skill.name, skill.body}
+      _ -> {nil, nil}
+    end
+  end
+
+  defp lookup_skill_strings(_), do: {nil, nil}
+
+  defp lookup_design_system_strings(id) when is_binary(id) and id != "" do
+    case DesignSystems.Loader.get(id) do
+      {:ok, ds} -> {ds.title, ds.body}
+      _ -> {nil, nil}
+    end
+  end
+
+  defp lookup_design_system_strings(_), do: {nil, nil}
 
   @impl true
   def handle_info({port, {:data, {flag, line}}}, %State{port: {:port, port}} = state) do
