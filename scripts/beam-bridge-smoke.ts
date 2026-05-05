@@ -49,18 +49,25 @@ const server = createServer(async (req, res) => {
   }
   try {
     if (match.kind === "start") return await handleBeamRunStart(config, req, res);
-    if (match.kind === "events") return handleBeamRunEvents(config, match.runId, req, res);
+    if (match.kind === "events" && match.runId != null) {
+      return handleBeamRunEvents(config, match.runId, req, res);
+    }
   } catch (err) {
     if (!res.headersSent) {
       res.statusCode = 500;
       res.setHeader("content-type", "text/plain");
     }
-    res.end(`bridge error: ${err?.message ?? String(err)}`);
+    const message = err instanceof Error ? err.message : String(err);
+    res.end(`bridge error: ${message}`);
   }
 });
 
-await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
-const port = server.address().port;
+await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
+const address = server.address();
+if (address == null || typeof address === "string") {
+  throw new Error("expected server.address() to return AddressInfo");
+}
+const port = address.port;
 const base = `http://127.0.0.1:${port}`;
 console.log(`✓ bridge harness listening at ${base}\n`);
 
@@ -89,7 +96,7 @@ if (!createResp.ok) {
   process.exit(3);
 }
 
-const { runId } = await createResp.json();
+const { runId } = (await createResp.json()) as { runId: string };
 console.log(`✓ POST /api/runs → 202 runId=${runId}`);
 
 // --- Step 2: GET /api/runs/:id/events (SSE consumer, mirrors React UI) ---
@@ -102,6 +109,9 @@ if (!eventsResp.ok) {
 }
 console.log(`✓ GET /api/runs/${runId}/events → 200 ${eventsResp.headers.get("content-type")}\n`);
 
+if (eventsResp.body == null) {
+  throw new Error("expected SSE response body to be non-null");
+}
 const reader = eventsResp.body.getReader();
 const decoder = new TextDecoder();
 let buffer = "";

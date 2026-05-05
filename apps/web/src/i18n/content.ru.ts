@@ -406,7 +406,10 @@ export const RU_PROMPT_TEMPLATE_CATEGORIES: Record<string, string> = {
   Travel: 'Путешествия',
 };
 
-export const RU_PROMPT_TEMPLATE_IDS_WITH_EN_FALLBACK = [] as const;
+export const RU_PROMPT_TEMPLATE_IDS_WITH_EN_FALLBACK = [
+  'illustration-thing-explainer-rework',
+  'illustration-xkcd-stick-figure-rework',
+] as const;
 
 export const RU_PROMPT_TEMPLATE_TAGS: Record<string, string> = {
   '3d': '3D',
@@ -505,6 +508,18 @@ export const RU_PROMPT_TEMPLATE_TAGS: Record<string, string> = {
   'vs-screen': 'VS-экран',
   'website-to-video': 'Сайт-в-видео',
   wuxia: 'Уся',
+  xkcd: 'xkcd',
+  'xkcd-family': 'семейство xkcd',
+  'black-ink': 'чёрные чернила',
+  'cross-section': 'разрез',
+  diagrammatic: 'схематично',
+  explainer: 'объяснитель',
+  'hand-lettered': 'рукописный шрифт',
+  munroe: 'Манро',
+  'simple-words': 'простые слова',
+  'stick-figure': 'фигура из палочек',
+  'ten-hundred-words': 'тысяча слов',
+  'thing-explainer': 'thing explainer',
   zhaoyun: 'Чжао Юнь',
 };
 

@@ -163,6 +163,11 @@ if (!prompt) {
   prompt = templateMeta.prompt;
 }
 
+if (prompt == null) {
+  process.stderr.write('error: prompt could not be resolved\n');
+  process.exit(2);
+}
+
 // -------- daemon API helpers --------------------------------------------
 
 async function apiPost(path: string, body: unknown): Promise<any> {

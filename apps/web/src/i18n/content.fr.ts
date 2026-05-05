@@ -406,7 +406,10 @@ export const FR_PROMPT_TEMPLATE_CATEGORIES: Record<string, string> = {
   Travel: 'Voyage',
 };
 
-export const FR_PROMPT_TEMPLATE_IDS_WITH_EN_FALLBACK = [] as const;
+export const FR_PROMPT_TEMPLATE_IDS_WITH_EN_FALLBACK = [
+  'illustration-thing-explainer-rework',
+  'illustration-xkcd-stick-figure-rework',
+] as const;
 
 export const FR_PROMPT_TEMPLATE_TAGS: Record<string, string> = {
   '3d': '3D',
@@ -505,6 +508,18 @@ export const FR_PROMPT_TEMPLATE_TAGS: Record<string, string> = {
   'vs-screen': 'VS screen',
   'website-to-video': 'website-to-video',
   wuxia: 'wuxia',
+  xkcd: 'xkcd',
+  'xkcd-family': 'famille xkcd',
+  'black-ink': 'encre noire',
+  'cross-section': 'coupe transversale',
+  diagrammatic: 'schématique',
+  explainer: 'explicatif',
+  'hand-lettered': 'lettrage manuscrit',
+  munroe: 'Munroe',
+  'simple-words': 'mots simples',
+  'stick-figure': 'bonhomme allumette',
+  'ten-hundred-words': 'mille mots',
+  'thing-explainer': 'thing explainer',
   zhaoyun: 'Zhaoyun',
 };
 

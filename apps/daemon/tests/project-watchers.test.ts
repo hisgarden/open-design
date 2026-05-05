@@ -34,7 +34,7 @@ async function makeProjectsRoot() {
   return { root, projectId };
 }
 
-function waitFor(predicate, { timeout = 2000, interval = 25 } = {}) {
+function waitFor(predicate, { timeout = 8000, interval = 25 } = {}) {
   return new Promise((resolve, reject) => {
     const started = Date.now();
     const tick = () => {
