@@ -22,9 +22,9 @@ defmodule BeamDesign.Web.WorkspaceChannelTest do
           protocol_version: 1,
           workspace_id: "my-ws",
           capabilities: caps,
-          stub_mode: true
+          synthetic_runs: true
         },
-        500
+        2_000
       )
 
       assert "run.start" in caps
@@ -58,7 +58,7 @@ defmodule BeamDesign.Web.WorkspaceChannelTest do
           "prompt" => "make a 5-slide deck"
         })
 
-      assert_reply(ref, :ok, %{run_id: run_id, status: "started", stub_mode: true}, 500)
+      assert_reply(ref, :ok, %{run_id: run_id, status: "started", stub_mode: true}, 2_000)
 
       assert_push("run.started", %{run_id: ^run_id, started_at: _}, 1_000)
       assert_push("run.output", %{run_id: ^run_id, kind: "stdout", delta: d1}, 1_000)

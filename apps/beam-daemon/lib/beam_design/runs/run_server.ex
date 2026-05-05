@@ -14,6 +14,14 @@ defmodule BeamDesign.Runs.RunServer do
   alias BeamDesign.Conversations
   alias BeamDesign.{DesignSystems, Skills}
 
+  # Sliding-window cap on conversation message history. ~200 entries
+  # is comfortable for DeepSeek V4-Pro's 128K context (each entry
+  # averages 1-3KB). When we hit the cap, keep the very first message
+  # (the system prompt + skill body, which is load-bearing) plus the
+  # last (cap - 1) entries — the recent conversation. Older middle
+  # turns get dropped.
+  @max_persisted_messages 200
+
   @max_tool_iterations 10
 
   defmodule State do
@@ -108,6 +116,7 @@ defmodule BeamDesign.Runs.RunServer do
   #   (next turn already started in :agent_tool_calls handler).
   # - `{:agent_done, %{success: false, ...}}` — only on transport failure
   #   (4xx/5xx, connection refused). Always terminates the run.
+  @impl true
   def handle_info({:agent_chunk, text}, state) when is_binary(text) do
     send_event(state, "run.output", %{run_id: state.run_id, kind: "agent", delta: text})
     {:noreply, state}
@@ -198,6 +207,55 @@ defmodule BeamDesign.Runs.RunServer do
     send_event(state, "run.terminal", terminal_payload)
     {:stop, :normal, %{state | terminal?: true}}
   end
+
+  # ClaudeCode (port-based) streaming events. The deepinfra path is
+  # task-based and uses the :agent_* messages above.
+
+  def handle_info({port, {:data, {flag, line}}}, %State{port: {:port, port}} = state) do
+    full_line =
+      case flag do
+        :eol -> state.line_buffer <> line
+        :noeol -> state.line_buffer <> line
+      end
+
+    state = %{state | line_buffer: ""}
+
+    state =
+      case flag do
+        :noeol ->
+          %{state | line_buffer: full_line}
+
+        :eol ->
+          handle_complete_line(full_line, %{state | line_count: state.line_count + 1})
+      end
+
+    {:noreply, state}
+  end
+
+  def handle_info({port, {:exit_status, status}}, %State{port: {:port, port}} = state) do
+    if state.terminal? do
+      {:stop, :normal, state}
+    else
+      send_event(state, "run.terminal", %{
+        run_id: state.run_id,
+        status: if(status == 0, do: "succeeded", else: "failed"),
+        exit: status,
+        ended_at: System.system_time(:millisecond)
+      })
+
+      {:stop, :normal, %{state | terminal?: true}}
+    end
+  end
+
+  def handle_info({:EXIT, port, _reason}, %State{port: {:port, port}} = state) do
+    {:stop, :normal, state}
+  end
+
+  def handle_info({:EXIT, pid, _reason}, %State{port: {:task, pid}} = state) do
+    {:stop, :normal, state}
+  end
+
+  def handle_info(_other, state), do: {:noreply, state}
 
   # Build the OpenAI-shape `role: "assistant", tool_calls: [...]` message
   # we have to send back to the API on the next turn so the model can
@@ -430,58 +488,24 @@ defmodule BeamDesign.Runs.RunServer do
          messages: msgs
        })
        when is_binary(ws) and is_binary(conv) and is_list(msgs) do
-    Conversations.Store.put_messages(ws, conv, msgs)
+    Conversations.Store.put_messages(ws, conv, cap_history(msgs))
     :ok
   end
 
   defp persist_messages(_), do: :ok
 
-  @impl true
-  def handle_info({port, {:data, {flag, line}}}, %State{port: {:port, port}} = state) do
-    full_line =
-      case flag do
-        :eol -> state.line_buffer <> line
-        :noeol -> state.line_buffer <> line
-      end
-
-    state = %{state | line_buffer: ""}
-
-    state =
-      case flag do
-        :noeol ->
-          %{state | line_buffer: full_line}
-
-        :eol ->
-          handle_complete_line(full_line, %{state | line_count: state.line_count + 1})
-      end
-
-    {:noreply, state}
-  end
-
-  def handle_info({port, {:exit_status, status}}, %State{port: {:port, port}} = state) do
-    if state.terminal? do
-      {:stop, :normal, state}
+  # Sliding-window cap. Returns msgs unchanged when under the cap;
+  # otherwise keeps the head (load-bearing system prompt + skill body)
+  # plus the most recent (cap - 1) entries.
+  defp cap_history(msgs) when is_list(msgs) do
+    if length(msgs) <= @max_persisted_messages do
+      msgs
     else
-      send_event(state, "run.terminal", %{
-        run_id: state.run_id,
-        status: if(status == 0, do: "succeeded", else: "failed"),
-        exit: status,
-        ended_at: System.system_time(:millisecond)
-      })
-
-      {:stop, :normal, %{state | terminal?: true}}
+      [head | _] = msgs
+      tail_count = @max_persisted_messages - 1
+      [head | Enum.take(msgs, -tail_count)]
     end
   end
-
-  def handle_info({:EXIT, port, _reason}, %State{port: {:port, port}} = state) do
-    {:stop, :normal, state}
-  end
-
-  def handle_info({:EXIT, pid, _reason}, %State{port: {:task, pid}} = state) do
-    {:stop, :normal, state}
-  end
-
-  def handle_info(_other, state), do: {:noreply, state}
 
   defp handle_complete_line(line, state) do
     case ClaudeCode.parse_line(line) do
