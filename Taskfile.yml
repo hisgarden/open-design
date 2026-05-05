@@ -15,6 +15,7 @@ vars:
   REPO_ROOT:
     sh: pwd
   BEAM_REPO: '{{.HOME}}/code/beam-design-daemon'
+  BEAM_RUN_DIR: '{{.REPO_ROOT}}/apps/beam-daemon'
   WEB_PORT: '17573'
   DAEMON_PORT: '17456'
   BEAM_PORT: '4000'
@@ -63,16 +64,16 @@ tasks:
 
   # ---- BEAM daemon (Elixir/Phoenix) --------------------------------------
   #
-  # Runs from {{.BEAM_REPO}} (the canonical standalone repo) where mix deps
-  # are already fetched. The apps/beam-daemon/ subtree copy is for browsing
-  # source + cross-repo sync, not for execution — it lacks _build/ and
-  # deps/ unless you `mix deps.get` there separately.
+  # Runs from {{.BEAM_RUN_DIR}} (apps/beam-daemon/, the in-repo subtree).
+  # First run fetches deps via `mix deps.get`. The standalone {{.BEAM_REPO}}
+  # is used only by beam:sync:* for cross-repo subtree push/pull.
 
   beam:up:
     desc: 'Start the BEAM Design Daemon (Phoenix endpoint on :{{.BEAM_PORT}}). Foreground; Ctrl-C stops.'
     cmds:
       - |
-        cd {{.BEAM_REPO}}
+        cd {{.BEAM_RUN_DIR}}
+        mix deps.get
         BEAM_DESIGN_WORKSPACE_DIR={{.REPO_ROOT}} mix run --no-halt
 
   beam:down:
