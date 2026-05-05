@@ -64,27 +64,46 @@ cd apps/beam-daemon
 BEAM_DESIGN_WORKSPACE_DIR="$(pwd)/../.." mix run --no-halt
 
 # in another terminal — start web with bridge enabled
-cd /Users/jwen/workspace/ml/open-design
+# (or just `task web:up:bridge` — the Taskfile bakes these defaults in)
+cd /Users/hisgarden/workspace/ml/open-design
 BEAM_DAEMON_URL=ws://127.0.0.1:4000/socket/websocket \
 BEAM_AGENT_ID=deepinfra \
-BEAM_MODEL_TEXT=deepseek-ai/DeepSeek-V4-Flash \
+BEAM_MODEL_TEXT=deepseek-ai/DeepSeek-V4-Pro \
 BEAM_MODEL_VISION=Qwen/Qwen3-VL-235B-A22B-Instruct \
   pnpm tools-dev run web --daemon-port 17456 --web-port 17573
 ```
 
 The bridge auto-routes by request shape:
-- text-only chats → `BEAM_MODEL_TEXT` (DeepSeek V4-Flash, ~$0.28/1M out)
+- text-only chats → `BEAM_MODEL_TEXT` (DeepSeek V4-Pro for the tool-loop deck path)
 - chats with image attachments → `BEAM_MODEL_VISION` (Qwen3-VL-235B, ~$0.88/1M out)
 
 Without `BEAM_DAEMON_URL`, the chat surface uses the JS daemon's CLI-agent path (Claude Code etc.) exactly as upstream does.
 
-## Optional — bigger / smaller text-tier model
+## Tool loop: what makes the deck path different
+
+When `skill_id=html-ppt` (or any skill that asks the agent to *write* artifacts) and a project is set, the BEAM bridge advertises three OpenAI-compatible function tools — `write_file`, `read_file`, `list_files` — sandboxed under `<OD_DATA_DIR>/projects/<id>/`. The model writes real HTML files; the JS daemon's project-files watcher feeds them into the React UI's preview pane.
+
+This is what gives you slides on the right side of the screen instead of "go to Figma" prose.
+
+**Model-selection caveats** — verified across DeepInfra-hosted models, baked into the smoke-test defaults:
+
+- **V4-Pro** is the right default for the deck path. Slower (~60-180s per turn) but reliably round-trips long tool_call content arguments (5-10KB of HTML per call).
+- **V4-Flash** silently truncates long tool_call content args to `""`. Fine for plain chat; do NOT use for the deck path.
+- Other DeepInfra models tried and ruled out: Qwen3-Max (no tool_call IDs), Llama-3.3-70B (announces intent but doesn't call), Kimi K2 (whitespace deltas), Kimi K2.6 (hallucinates content), Step-3.5-Flash (announces but doesn't call).
+
+## Conversation memory across runs
+
+Consecutive runs on the same `conversationId` (which the React UI mints automatically per chat thread) share message history via an ETS-backed BEAM-side store. Turn 2 sees turn 1's user message + assistant tool_calls + tool_results without any project re-upload — the model picks up the thread from where it left off.
+
+This means "now make slide 2 darker" works the way you'd expect after the deck is generated, instead of starting from scratch.
+
+## Optional — alternative text-tier models
 
 ```bash
-# top-tier reasoning, more expensive (~$3.48/1M out)
-BEAM_MODEL_TEXT=deepseek-ai/DeepSeek-V4-Pro
+# Cheap chat-only mode (no tool calls, no deck generation)
+BEAM_MODEL_TEXT=deepseek-ai/DeepSeek-V4-Flash
 
-# legacy v3.2 (slightly older + slightly more expensive than v4-flash; no reason to pick this)
+# Legacy v3.2 (slightly older + slightly more expensive than v4-flash; no reason to pick this for fresh setups)
 BEAM_MODEL_TEXT=deepseek-ai/DeepSeek-V3.2
 ```
 

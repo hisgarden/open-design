@@ -11,19 +11,40 @@ A parallel re-implementation of the daemon in Elixir/Phoenix on the BEAM VM, rea
 | `apps/beam-daemon/` | Full Elixir source (subtree-merged from `hisgarden/beam-design-daemon`). Has its own `mix.exs` + `lib/` + `test/`; pnpm ignores it. |
 | `apps/web/sidecar/beam-bridge.ts` | Translation layer. Gated by `BEAM_DAEMON_URL`. When set, intercepts `POST /api/runs`, `GET /api/runs/:id/events`, and `POST /api/runs/:id/cancel` before they hit the JS daemon. When unset, no-op. |
 
+**The DeepInfra path is now a real artifact-writing code agent**, not a chat passthrough. The BEAM daemon offers `write_file` / `read_file` / `list_files` as OpenAI-compatible function tools (sandboxed under `<project_dir>` = `<OD_DATA_DIR>/projects/<id>`). When chat with `skill_id=html-ppt` lands, the model writes real `index.html` (etc.) into the project directory; the JS daemon's project-files watcher picks them up and the React UI's preview pane renders them — entirely off DeepInfra, no Anthropic billing, no Claude Code install.
+
+Consecutive runs on the same `conversationId` share message history via an ETS-backed `BeamDesign.Conversations.Store`, keyed by `{workspace_id, conversation_id}`. Turn 2 sees turn 1's user msg + assistant tool_calls + tool_results without re-uploading the project — true thread continuity, the load-bearing "agent-as-teammate" piece.
+
 **Bridge env knobs:**
 
 | Var | Effect |
 |---|---|
 | `BEAM_DAEMON_URL` | `ws://...` URL of the BEAM Phoenix endpoint. Unset → bridge disabled. |
-| `BEAM_AGENT_ID` | Forces every run to a specific BEAM agent (`deepinfra` / `claude-code`), overriding the UI's pick. |
-| `BEAM_MODEL_TEXT` | Default model for text-only chats. Recommended: `deepseek-ai/DeepSeek-V4-Flash` (~$0.28/1M out). |
+| `BEAM_AGENT_ID` | Forces every run to a specific BEAM agent (`deepinfra` / `claude-code`), overriding the UI's pick. When set, the bridge also drops the UI's `body.model` (it would name the prior agent's vocab — e.g. `claude-sonnet-4-5` — and DeepInfra wouldn't host it). |
+| `BEAM_MODEL_TEXT` | Default model for text-only chats. **For tool-loop / deck generation, use `deepseek-ai/DeepSeek-V4-Pro`** — V4-Flash truncates long tool_call content arguments to `""`. V4-Pro is slower (~60-180s per turn) but reliable. |
 | `BEAM_MODEL_VISION` | Default model when chat carries image attachments. Recommended: `Qwen/Qwen3-VL-235B-A22B-Instruct` (~$0.88/1M out). |
 | `BEAM_MODEL` | Legacy single-tier fallback when `_TEXT`/`_VISION` aren't set. |
 | `BEAM_ATTACHMENT_ROOTS` | Colon-separated roots for resolving relative attachment paths (default: sidecar cwd). |
 | `BEAM_MAX_IMAGE_BYTES` | Hard cap per attached image (default 5 MiB). |
 
-See [`scripts/README-beam-bridge.md`](../scripts/README-beam-bridge.md) for the full architecture, smoke tests, and verification stories.
+**Smoke tests:**
+
+| Task | What it proves |
+|---|---|
+| `task smoke:bridge` | Chat passthrough works end-to-end (BEAM → DeepInfra → SSE). |
+| `task smoke:image` | Image generation (separate path: JS daemon → DeepInfra `/api/media/generate`). |
+| `task smoke:deck` | Tool loop writes a real `index.html` deck under `.od/projects/<id>/`. |
+| `task smoke:bridge:thread` | Conversation memory: turn 2 recovers a marker from turn 1 without being told. |
+
+**Model selection caveats** (verified 2026-05-04 across DeepInfra-hosted models):
+
+- **DeepSeek-V4-Pro** — flagship; reliable tool-call ID emission and long content args. Default for `BEAM_MODEL_TEXT` when running the deck path. Slower (~60-180s).
+- **DeepSeek-V4-Flash** — fast for plain chat; **silently truncates long tool_call content args to `""`**. Don't use for the deck path.
+- **Qwen3-Max** — produces real HTML in tool args but doesn't emit tool_call IDs. The bridge synthesizes IDs to keep the loop converging, but some providers may still fail to correlate; flagged-risky.
+- **Llama-3.3-70B-Instruct, Step-3.5-Flash** — announce intent ("I'll create…") in text but don't actually call the tool. Don't use.
+- **Kimi K2 / K2.6** — whitespace-only deltas (K2) or hallucinated content (K2.6 produced invoice prose when asked for a coffee deck). Don't use.
+
+See [`scripts/README-beam-bridge.md`](../scripts/README-beam-bridge.md) and [`docs/plans/2026-05-04-003-feat-beam-bridge-tool-loop-plan.md`](./plans/2026-05-04-003-feat-beam-bridge-tool-loop-plan.md) for the full architecture and verification stories.
 
 ## 2. DeepInfra as a first-class image provider
 

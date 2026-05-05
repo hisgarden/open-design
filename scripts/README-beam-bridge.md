@@ -57,8 +57,8 @@ The JS daemon's `/api/agents` only advertises CLI agents (`claude` / `codex` / `
 
 | Env var | Effect |
 |---|---|
-| `BEAM_AGENT_ID` | Forces every run to this BEAM agent id (e.g. `deepinfra`), regardless of what the UI sent. Unset → use the UI's pick via `AGENT_ID_TO_BEAM`. |
-| `BEAM_MODEL_TEXT` | Default model for **text-only** chats — the cheap tier. e.g. `deepseek-ai/DeepSeek-V3.2` (~$0.38/1M output). |
+| `BEAM_AGENT_ID` | Forces every run to this BEAM agent id (e.g. `deepinfra`), regardless of what the UI sent. Unset → use the UI's pick via `AGENT_ID_TO_BEAM`. **When set, the bridge also drops the UI's `body.model`** — that field names the *prior* agent's vocab (e.g. `claude-sonnet-4-5`), which DeepInfra wouldn't host. `BEAM_MODEL_TEXT` / `BEAM_MODEL_VISION` speak for the override instead. |
+| `BEAM_MODEL_TEXT` | Default model for **text-only** chats. **For the deck / tool-loop path, use `deepseek-ai/DeepSeek-V4-Pro`** — V4-Flash silently truncates long tool_call content arguments to `""` (verified). V4-Pro is slower (~60-180s per turn) but reliable. |
 | `BEAM_MODEL_VISION` | Default model when the chat carries **image attachments** — the vision tier. e.g. `Qwen/Qwen3-VL-235B-A22B-Instruct` (~$0.88/1M output). |
 | `BEAM_MODEL` | Legacy single-tier default. Used as the fallback for both tiers when neither `_TEXT` nor `_VISION` is set. |
 | `BEAM_ATTACHMENT_ROOTS` | Colon-separated roots for resolving relative attachment paths. Default: the sidecar's cwd (the open-design tree). |
@@ -66,21 +66,23 @@ The JS daemon's `/api/agents` only advertises CLI agents (`claude` / `codex` / `
 
 ```bash
 # Terminal 1 — BEAM daemon (DEEPINFRA_API_KEY must be in env)
-cd ~/code/beam-design-daemon
-BEAM_DESIGN_WORKSPACE_DIR=/Users/jwen/workspace/ml/open-design \
+# (or just `task beam:up` — the Taskfile handles the cd + env wiring)
+cd apps/beam-daemon
+BEAM_DESIGN_WORKSPACE_DIR=/Users/hisgarden/workspace/ml/open-design \
   DEEPINFRA_API_KEY="$DEEPINFRA_API_KEY" \
   mix run --no-halt
 
 # Terminal 2 — web in DeepInfra-only mode, tier-aware models
-cd ~/workspace/ml/open-design
+# (or just `task web:up:bridge`)
+cd /Users/hisgarden/workspace/ml/open-design
 BEAM_DAEMON_URL=ws://127.0.0.1:4000/socket/websocket \
 BEAM_AGENT_ID=deepinfra \
-BEAM_MODEL_TEXT=deepseek-ai/DeepSeek-V4-Flash \
+BEAM_MODEL_TEXT=deepseek-ai/DeepSeek-V4-Pro \
 BEAM_MODEL_VISION=Qwen/Qwen3-VL-235B-A22B-Instruct \
   pnpm tools-dev run web --daemon-port 17456 --web-port 17573
 ```
 
-DeepSeek V4-Flash (~$0.28 / 1M output) is the documented default — newer architecture than V3.2 and *cheaper*, so the upgrade is unconditional. Set `BEAM_MODEL_TEXT=deepseek-ai/DeepSeek-V4-Pro` (~$3.48 / 1M output) when chat reasoning quality matters more than cost.
+V4-Pro is the right text-tier default for the deck path — V4-Flash silently truncates long tool_call content arguments. Use V4-Flash only for plain chat where the model never has to call `write_file`.
 
 Now chat in the UI streams through DeepInfra's OpenAI-compatible API (`https://api.deepinfra.com/v1/openai`). The bridge picks the model by request shape: text-only chats hit the cheap text tier, attachments-with-images hit the vision tier — "right model at the right time" instead of paying $0.88/1M output for plain text.
 
