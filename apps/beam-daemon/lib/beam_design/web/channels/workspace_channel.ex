@@ -107,11 +107,16 @@ defmodule BeamDesign.Web.WorkspaceChannel do
         else
           agent = Map.get(payload, "agent", "claude-code")
 
+          # Inject the channel-authenticated workspace_id into payload
+          # so RunServer doesn't have to (and shouldn't) trust the
+          # bridge to declare which workspace a run belongs to.
+          enriched_payload = Map.put(payload, "workspace_id", socket.assigns.workspace_id)
+
           case Runs.Supervisor.start_run(%{
                  run_id: run_id,
                  subscriber: self(),
                  agent: agent,
-                 payload: payload
+                 payload: enriched_payload
                }) do
             {:ok, _pid} ->
               {:reply, {:ok, %{run_id: run_id, status: "started", agent: agent, stub_mode: false}},

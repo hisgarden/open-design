@@ -514,6 +514,10 @@ export async function handleBeamRunStart(
         if ((frame.payload as any)?.status === "ok") {
           joined = true;
           const projectDir = resolveProjectDir(body.projectId ?? null);
+          const conversationId =
+            typeof body.conversationId === "string" && body.conversationId !== ""
+              ? body.conversationId
+              : null;
           send("run.start", {
             skill_id: body.skillId ?? "html-ppt",
             design_system_id: body.designSystemId ?? "obsidian-claude-gradient",
@@ -522,6 +526,7 @@ export async function handleBeamRunStart(
             ...(beamModel ? { model: beamModel } : {}),
             ...(images.length > 0 ? { images } : {}),
             ...(projectDir != null ? { project_dir: projectDir } : {}),
+            ...(conversationId != null ? { conversation_id: conversationId } : {}),
           });
         } else {
           terminate(run, {

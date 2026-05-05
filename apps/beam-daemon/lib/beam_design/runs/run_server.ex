@@ -31,7 +31,14 @@ defmodule BeamDesign.Runs.RunServer do
       :model,
       :messages,
       :project_dir,
-      :tool_iterations
+      :tool_iterations,
+      # Conversation-resumption keys (Phase 4A). Both nil for runs not
+      # tagged with a conversation_id; behavior changes only when both
+      # are populated AND the agent path supports it (Phase 4C wires
+      # this in for deepinfra). workspace_id comes from the channel's
+      # authenticated socket, NOT the bridge payload.
+      :workspace_id,
+      :conversation_id
     ]
   end
 
@@ -59,7 +66,9 @@ defmodule BeamDesign.Runs.RunServer do
       model: nil,
       messages: [],
       project_dir: nil,
-      tool_iterations: 0
+      tool_iterations: 0,
+      workspace_id: payload["workspace_id"],
+      conversation_id: payload["conversation_id"]
     }
 
     case dispatch_agent(agent, payload, state) do
