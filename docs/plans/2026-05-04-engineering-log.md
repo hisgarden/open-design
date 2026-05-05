@@ -232,9 +232,30 @@ Commit: `5a7524c`.
 - **Per-workdir `.gc_meta.json` + artifact patterns** — multica
   brief #5. We have zero GC story for `.od/projects/<id>/` today.
 
+## 01:15 — Documentation refresh + daemon UUID
+
+After the user called it a night, ~1 hour of autonomous polish:
+
+- Refreshed `docs/FORK-DELTA.md`, `docs/deepinfra-setup.md`, and
+  `scripts/README-beam-bridge.md` to reflect Phase B/C and Phase 4
+  shipping. Updated the V4-Flash → V4-Pro recommendation; documented
+  the model-selection caveats matrix; removed stale `~/code/...`
+  paths in favor of in-repo `apps/beam-daemon/` after the subtree
+  import. Commit: `2bb3871`.
+- Implemented multica brief #2 — `BeamDesign.Auth.DaemonId` minting
+  a stable UUID v4 at `~/.beam-design/daemon.id` (mode 0600, atomic
+  write, `:persistent_term`-cached). Wired into the channel's
+  `welcome` push as `daemon_id:` so connected clients can dedupe
+  runtime rows across hostname `.local` drift. 6 tests cover mint,
+  mode, idempotence, regeneration on corruption, version+variant
+  bits. 72/72 BEAM tests pass. Commit: `ed4848b`.
+
 ## Branch state at end of session
 
 ```
+ed4848b feat(beam): stable per-install daemon UUID
+2bb3871 docs(beam): refresh BEAM bridge docs after Phase B/C and Phase 4 ship
+814301a docs(log): 2026-05-04 engineering log
 90381c9 chore(beam): cap message history, regroup handlers, fix pre-existing test flakes
 7055b25 fix(beam-bridge): make BEAM-overridden runs browser-visible
 5ed3a02 feat(beam-bridge): Phase 4C — DeepInfra conversation resumption
@@ -250,5 +271,8 @@ cca3169 feat(beam-bridge): Phase A — inject skill + design system as system pr
 ... (rebased on top of origin/main 4f27953)
 ```
 
-13 commits today on top of the rebased base. Branch is at
-`90381c9`.
+15 commits today on top of the rebased base. Branch is at `ed4848b`,
+122 commits ahead of `origin/docs/beam-design-daemon-spec` (force-
+push when ready). All 72 BEAM tests + 758 JS tests + 16 Playwright
+UI tests pass. Live stack is up: BEAM on `:4000`, JS daemon on
+`:17456`, web sidecar on `:17573`, all with the right env wired.
