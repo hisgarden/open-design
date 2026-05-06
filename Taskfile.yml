@@ -161,12 +161,11 @@ tasks:
   # ---- gates -------------------------------------------------------------
 
   check:
-    desc: 'Run the full pre-commit gate suite (typecheck + tests + residual-js + media-models drift).'
+    desc: 'Run the full pre-commit gate suite (typecheck + tests + guard).'
     cmds:
       - pnpm -r --if-present run typecheck
       - pnpm -r --if-present run test
-      - pnpm check:residual-js
-      - node scripts/verify-media-models.mjs
+      - pnpm guard
 
   check:typecheck:
     desc: 'Just the typechecks (web + daemon + everything else with a typecheck script).'
@@ -178,15 +177,10 @@ tasks:
     cmds:
       - pnpm -r --if-present run test
 
-  check:residual-js:
-    desc: 'Verify no project-owned .js/.mjs/.cjs files have crept in.'
+  check:guard:
+    desc: 'Run upstream''s `pnpm guard` (residual-js + media-models drift + other gates).'
     cmds:
-      - pnpm check:residual-js
-
-  check:media-models:
-    desc: 'Verify the daemon (JS) and web (TS) media model registries are in sync.'
-    cmds:
-      - node scripts/verify-media-models.mjs
+      - pnpm guard
 
   # ---- BEAM subtree sync (hybrid repo arrangement) -----------------------
 
