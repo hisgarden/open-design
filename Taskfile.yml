@@ -124,13 +124,36 @@ tasks:
         done
 
   beam:up:bg:
-    desc: 'Start BEAM in background (logs at .tmp/stack/beam.log). Idempotent — no-op if :{{.BEAM_PORT}} already listening. Used by stack:up.'
+    desc: 'Start BEAM in background (logs at .tmp/stack/beam.log). Idempotent — no-op if :{{.BEAM_PORT}} already listening. Resolves the DeepInfra key from $DEEPINFRA_API_KEY → $OPENAI_API_KEY → Keychain entry "OPENAI_API_KEY".'
     cmds:
       - |
-        if [ -z "${DEEPINFRA_API_KEY:-}" ]; then
-          echo "ERROR: DEEPINFRA_API_KEY is unset. Export it before bringing BEAM up." >&2
+        # Resolve the DeepInfra key. Local convention: same value as
+        # OPENAI_API_KEY (DeepInfra serves an OpenAI-compatible route),
+        # stored once in macOS Keychain under service "OPENAI_API_KEY".
+        # Priority: explicit env override → OPENAI_API_KEY env → Keychain.
+        resolved=""
+        source=""
+        if [ -n "${DEEPINFRA_API_KEY:-}" ]; then
+          resolved="$DEEPINFRA_API_KEY"
+          source="DEEPINFRA_API_KEY env"
+        elif [ -n "${OPENAI_API_KEY:-}" ]; then
+          resolved="$OPENAI_API_KEY"
+          source="OPENAI_API_KEY env"
+        else
+          kc=$(security find-generic-password -s OPENAI_API_KEY -w 2>/dev/null || true)
+          if [ -n "$kc" ]; then
+            resolved="$kc"
+            source="Keychain (OPENAI_API_KEY)"
+          fi
+        fi
+        if [ -z "$resolved" ]; then
+          echo "ERROR: could not resolve DeepInfra key." >&2
+          echo "       Tried: \$DEEPINFRA_API_KEY env, \$OPENAI_API_KEY env, Keychain 'OPENAI_API_KEY'." >&2
+          echo "       Add to Keychain: security add-generic-password -s OPENAI_API_KEY -a \$USER -w" >&2
           exit 1
         fi
+        echo "[stack] DeepInfra key source: $source"
+
         pid=$(lsof -nP -iTCP:{{.BEAM_PORT}} -sTCP:LISTEN 2>/dev/null | awk 'NR==2{print $2}')
         if [ -n "$pid" ]; then
           echo "beam already running (pid $pid)"
@@ -140,7 +163,7 @@ tasks:
         cd {{.BEAM_RUN_DIR}}
         mix deps.get >/dev/null
         BEAM_DESIGN_WORKSPACE_DIR={{.REPO_ROOT}} \
-        DEEPINFRA_API_KEY="${DEEPINFRA_API_KEY}" \
+        DEEPINFRA_API_KEY="$resolved" \
           nohup mix run --no-halt > {{.REPO_ROOT}}/.tmp/stack/beam.log 2>&1 &
         echo $! > {{.REPO_ROOT}}/.tmp/stack/beam.pid
         disown $! 2>/dev/null || true
@@ -167,15 +190,9 @@ tasks:
         echo "web sidecar starting (pid $(cat {{.REPO_ROOT}}/.tmp/stack/web.pid)), logs: .tmp/stack/web.log"
 
   stack:up:
-    desc: 'Bring up the full stack (BEAM + JS daemon + web bridge) in background with health gating. Requires DEEPINFRA_API_KEY. Use `task stack:status` to recheck or `task stack:down` to stop.'
+    desc: 'Bring up the full stack (BEAM + JS daemon + web bridge) in background with health gating. Resolves the DeepInfra key from $DEEPINFRA_API_KEY → $OPENAI_API_KEY env → macOS Keychain entry "OPENAI_API_KEY". Use `task stack:status` to recheck or `task stack:down` to stop.'
     aliases: [up]
     cmds:
-      - |
-        if [ -z "${DEEPINFRA_API_KEY:-}" ]; then
-          echo "ERROR: DEEPINFRA_API_KEY is unset. Export it first." >&2
-          echo "       (For BYOK / image-only paths that don't need BEAM, use 'task web:up' instead.)" >&2
-          exit 1
-        fi
       - task: beam:up:bg
       - task: web:up:bridge:bg
       - |
@@ -292,4 +309,8 @@ tasks:
 # 2026-05-06  Add stack:up + beam:up:bg + web:up:bridge:bg — backgrounded,
 #             idempotent, env-validated startup with 45s health gating;
 #             logs at .tmp/stack/{beam,web}.log.
+# 2026-05-06  beam:up:bg now resolves the DeepInfra key from
+#             $DEEPINFRA_API_KEY → $OPENAI_API_KEY env → macOS Keychain
+#             entry "OPENAI_API_KEY" (DeepInfra reuses the OpenAI key in
+#             this env). Removes the env-only requirement.
 # ##############################################################################
