@@ -8,7 +8,7 @@ defmodule BeamDesign.Web.WorkspaceChannelTest do
   @endpoint BeamDesign.Web.Endpoint
 
   setup do
-    {:ok, socket} = connect(UserSocket, %{"token" => BeamDesign.Auth.Holder.current()}, %{})
+    {:ok, socket} = connect(UserSocket, %{"token" => BeamDesign.Auth.Holder.current()})
     {:ok, socket: socket}
   end
 
@@ -90,11 +90,11 @@ defmodule BeamDesign.Web.WorkspaceChannelTest do
 
   describe "auth" do
     test "connect with wrong token is refused" do
-      assert :error = connect(UserSocket, %{"token" => "definitely-not-the-token"}, %{})
+      assert :error = connect(UserSocket, %{"token" => "definitely-not-the-token"})
     end
 
     test "connect with no token is refused" do
-      assert :error = connect(UserSocket, %{}, %{})
+      assert :error = connect(UserSocket, %{})
     end
   end
 end
