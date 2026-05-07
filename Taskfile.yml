@@ -57,15 +57,19 @@ tasks:
       - pnpm tools-dev run web --daemon-port {{.DAEMON_PORT}} --web-port {{.WEB_PORT}}
 
   web:down:
-    desc: 'Stop the web sidecar + JS daemon (anything tools-dev started on the configured ports).'
+    desc: 'Stop the web sidecar + JS daemon (tools-dev IPC stop, plus port-based fallback).'
     cmds:
+      # Authoritative: tools-dev stop kills the registered daemon+web pair
+      # regardless of which ports they auto-allocated.
+      - pnpm tools-dev stop 2>&1 | tail -5 || true
+      # Belt-and-suspenders: kill anything still bound to the configured ports
+      # (e.g., a foreground `task web:up:bridge` that didn't register cleanly).
       - pkill -f 'tools-dev run web' 2>/dev/null || true
       - |
         for p in {{.WEB_PORT}} {{.DAEMON_PORT}}; do
           pid=$(lsof -nP -iTCP:$p -sTCP:LISTEN 2>/dev/null | awk 'NR==2{print $2}')
           [ -n "$pid" ] && kill "$pid" 2>/dev/null || true
         done
-      - sleep 1
       - echo "web sidecar stopped"
 
   # ---- BEAM daemon (Elixir/Phoenix) --------------------------------------
@@ -119,12 +123,99 @@ tasks:
           printf "%-8s %-25s → %s\n" "$label" "http://127.0.0.1:${port}${path}" "$code"
         done
 
+  beam:up:bg:
+    desc: 'Start BEAM in background (logs at .tmp/stack/beam.log). Idempotent — no-op if :{{.BEAM_PORT}} already listening. Used by stack:up.'
+    cmds:
+      - |
+        if [ -z "${DEEPINFRA_API_KEY:-}" ]; then
+          echo "ERROR: DEEPINFRA_API_KEY is unset. Export it before bringing BEAM up." >&2
+          exit 1
+        fi
+        pid=$(lsof -nP -iTCP:{{.BEAM_PORT}} -sTCP:LISTEN 2>/dev/null | awk 'NR==2{print $2}')
+        if [ -n "$pid" ]; then
+          echo "beam already running (pid $pid)"
+          exit 0
+        fi
+        mkdir -p {{.REPO_ROOT}}/.tmp/stack
+        cd {{.BEAM_RUN_DIR}}
+        mix deps.get >/dev/null
+        BEAM_DESIGN_WORKSPACE_DIR={{.REPO_ROOT}} \
+        DEEPINFRA_API_KEY="${DEEPINFRA_API_KEY}" \
+          nohup mix run --no-halt > {{.REPO_ROOT}}/.tmp/stack/beam.log 2>&1 &
+        echo $! > {{.REPO_ROOT}}/.tmp/stack/beam.pid
+        disown $! 2>/dev/null || true
+        echo "beam starting (pid $(cat {{.REPO_ROOT}}/.tmp/stack/beam.pid)), logs: .tmp/stack/beam.log"
+
+  web:up:bridge:bg:
+    desc: 'Start web+daemon with BEAM bridge in background (logs at .tmp/stack/web.log). Idempotent. Used by stack:up.'
+    cmds:
+      - |
+        if lsof -nP -iTCP:{{.WEB_PORT}} -sTCP:LISTEN >/dev/null 2>&1 \
+           && lsof -nP -iTCP:{{.DAEMON_PORT}} -sTCP:LISTEN >/dev/null 2>&1; then
+          echo "web+daemon already listening on :{{.WEB_PORT}} and :{{.DAEMON_PORT}}"
+          exit 0
+        fi
+        mkdir -p {{.REPO_ROOT}}/.tmp/stack
+        # tools-dev `run web` is foreground, so we nohup-background it ourselves
+        # to keep the env stack (BEAM_DAEMON_URL, BEAM_AGENT_ID, etc.) attached.
+        nohup pnpm tools-dev run web \
+          --daemon-port {{.DAEMON_PORT}} \
+          --web-port {{.WEB_PORT}} \
+          > {{.REPO_ROOT}}/.tmp/stack/web.log 2>&1 &
+        echo $! > {{.REPO_ROOT}}/.tmp/stack/web.pid
+        disown $! 2>/dev/null || true
+        echo "web sidecar starting (pid $(cat {{.REPO_ROOT}}/.tmp/stack/web.pid)), logs: .tmp/stack/web.log"
+
+  stack:up:
+    desc: 'Bring up the full stack (BEAM + JS daemon + web bridge) in background with health gating. Requires DEEPINFRA_API_KEY. Use `task stack:status` to recheck or `task stack:down` to stop.'
+    aliases: [up]
+    cmds:
+      - |
+        if [ -z "${DEEPINFRA_API_KEY:-}" ]; then
+          echo "ERROR: DEEPINFRA_API_KEY is unset. Export it first." >&2
+          echo "       (For BYOK / image-only paths that don't need BEAM, use 'task web:up' instead.)" >&2
+          exit 1
+        fi
+      - task: beam:up:bg
+      - task: web:up:bridge:bg
+      - |
+        # Health gate — poll each endpoint up to 45s for a non-DOWN response.
+        ok=1
+        for label_port_path in 'BEAM:{{.BEAM_PORT}}/' 'daemon:{{.DAEMON_PORT}}/api/health' 'web:{{.WEB_PORT}}/' ; do
+          label="${label_port_path%%:*}"
+          rest="${label_port_path#*:}"
+          port="${rest%%/*}"
+          path="/${rest#*/}"
+          [ "$rest" = "$port" ] && path="/"
+          deadline=$(( $(date +%s) + 45 ))
+          code=""
+          while : ; do
+            code=$(curl -sS -m 1 -o /dev/null -w "%{http_code}" "http://127.0.0.1:${port}${path}" 2>/dev/null || true)
+            [ -n "$code" ] && [ "$code" != "000" ] && break
+            if [ "$(date +%s)" -ge "$deadline" ]; then
+              code="DOWN"
+              ok=0
+              break
+            fi
+            sleep 0.5
+          done
+          printf "  %-8s :%-6s%-22s → %s\n" "$label" "$port" "$path" "$code"
+        done
+        if [ $ok -eq 1 ]; then
+          echo "stack:up OK"
+        else
+          echo "stack:up FAILED — see .tmp/stack/{beam,web}.log for details" >&2
+          exit 1
+        fi
+
   stack:down:
     desc: 'Stop everything (web sidecar + JS daemon + BEAM).'
     aliases: [down]
     cmds:
       - task: web:down
       - task: beam:down
+      - |
+        rm -f {{.REPO_ROOT}}/.tmp/stack/beam.pid {{.REPO_ROOT}}/.tmp/stack/web.pid 2>/dev/null || true
 
   # ---- smoke tests -------------------------------------------------------
 
@@ -198,4 +289,7 @@ tasks:
 # Changelog:
 # 2026-05-04  Initial Taskfile — web:up{,:bridge}, beam:up/down, stack:status,
 #             smoke:{image,bridge}, check (full + per-gate), beam:sync:{pull,push}.
+# 2026-05-06  Add stack:up + beam:up:bg + web:up:bridge:bg — backgrounded,
+#             idempotent, env-validated startup with 45s health gating;
+#             logs at .tmp/stack/{beam,web}.log.
 # ##############################################################################
