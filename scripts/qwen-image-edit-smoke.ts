@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 /**
  * Smoke test for the DeepInfra Qwen-Image-Edit i2i path.
  *

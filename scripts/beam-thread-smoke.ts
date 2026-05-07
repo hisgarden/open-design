@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 /**
  * BEAM conversation-resumption smoke — proves Phase 4C wires the
  * Conversations.Store correctly so a 2nd run on the same

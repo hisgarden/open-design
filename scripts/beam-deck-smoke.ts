@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 /**
  * BEAM tool-loop deck smoke — proves the chat→BEAM→DeepInfra→tool→file
  * round-trip end-to-end.

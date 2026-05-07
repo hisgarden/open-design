@@ -237,10 +237,10 @@ tasks:
   # ---- smoke tests -------------------------------------------------------
 
   smoke:image:
-    desc: 'Drive a single Qwen-Image-Max t2i call through /api/media/generate. Needs web:up running.'
+    desc: 'Drive a single Qwen-Image-Max t2i call through /api/media/generate. Needs web:up running. Runs on bun (no tsx, native TS).'
     cmds:
       - |
-        node --experimental-strip-types scripts/qwen-image-edit-smoke.ts \
+        bun run scripts/qwen-image-edit-smoke.ts \
           --model qwen-image-max --aspect 16:9 \
           --name "taskfile smoke" \
           --prompt "xkcd-style hand-drawn black-and-white. ALL TEXT HAND-LETTERED ALL-CAPS. A simple stick figure waves. Caption: 'TASKFILE SMOKE OK'."
@@ -257,14 +257,14 @@ tasks:
         curl -sS -N -m 30 "http://127.0.0.1:{{.WEB_PORT}}/api/runs/$RID/events" 2>&1 | head -20
 
   smoke:deck:
-    desc: 'Drive an end-to-end deck-generation run through the BEAM tool loop. Asserts at least one file was written under <project_dir>. Needs beam:up + web:up:bridge + DEEPINFRA_API_KEY in BEAM env.'
+    desc: 'Drive an end-to-end deck-generation run through the BEAM tool loop. Asserts at least one file was written under <project_dir>. Needs beam:up + web:up:bridge + DEEPINFRA_API_KEY in BEAM env. Runs on bun.'
     cmds:
-      - node --experimental-strip-types scripts/beam-deck-smoke.ts
+      - bun run scripts/beam-deck-smoke.ts
 
   smoke:bridge:thread:
-    desc: 'Drive a 2-turn run on the same conversationId. Asserts the second turn sees the first turn''s history (Phase 4C resumption). Needs beam:up + web:up:bridge.'
+    desc: 'Drive a 2-turn run on the same conversationId. Asserts the second turn sees the first turn''s history (Phase 4C resumption). Needs beam:up + web:up:bridge. Runs on bun.'
     cmds:
-      - node --experimental-strip-types scripts/beam-thread-smoke.ts
+      - bun run scripts/beam-thread-smoke.ts
 
   # ---- gates -------------------------------------------------------------
 
