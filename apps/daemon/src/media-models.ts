@@ -13,6 +13,7 @@ export const MEDIA_PROVIDERS = [
   { id: 'volcengine', label: 'Volcengine Ark (Doubao)', hint: 'Seedance 2.0 / Seedream', integrated: true, defaultBaseUrl: 'https://ark.cn-beijing.volces.com/api/v3' },
   { id: 'grok', label: 'xAI Grok Imagine', hint: 'grok-imagine — image + video with native audio', integrated: true, defaultBaseUrl: 'https://api.x.ai/v1' },
   { id: 'hyperframes', label: 'HyperFrames', hint: 'Local HTML -> MP4 renderer', integrated: true, credentialsRequired: false, settingsVisible: false },
+  { id: 'nanobanana', label: 'Nano Banana', hint: 'Google official by default; custom gateway configurable', integrated: true, defaultBaseUrl: 'https://generativelanguage.googleapis.com', supportsCustomModel: true },
   { id: 'bfl', label: 'Black Forest Labs', hint: 'FLUX 1.1 Pro / FLUX Pro / Dev', integrated: false, defaultBaseUrl: 'https://api.bfl.ai' },
   { id: 'fal', label: 'Fal.ai', hint: 'Sora / Seedance / Veo / FLUX', integrated: false, defaultBaseUrl: 'https://fal.run' },
   { id: 'replicate', label: 'Replicate', hint: 'FLUX / SDXL / Ideogram', integrated: false, defaultBaseUrl: 'https://api.replicate.com/v1' },
@@ -47,6 +48,8 @@ export const IMAGE_MODELS = [
   { id: 'seedream-4', label: 'Seedream-4', hint: 'DeepInfra · ByteDance Seedream-4 · multimodal t2i, but in-image text is weak', provider: 'deepinfra', caps: ['t2i'] },
   { id: 'wan-2.7-image-edit', label: 'Wan-2.7-Image-Edit', hint: 'DeepInfra · Alibaba Wan 2.7 · high-fidelity i2i edit', provider: 'deepinfra', caps: ['i2i'] },
   { id: 'qwen-image-edit', label: 'Qwen-Image-Edit', hint: 'DeepInfra · Qwen i2i · cheaper, lower fidelity', provider: 'deepinfra', caps: ['i2i'] },
+
+  { id: 'gemini-3.1-flash-image-preview', label: 'nano-banana-2', hint: 'Nano Banana · text-to-image', provider: 'nanobanana', caps: ['t2i'] },
 
   { id: 'flux-1.1-pro', label: 'flux-1.1-pro', hint: 'BFL · flagship', provider: 'bfl', caps: ['t2i', 'i2i'] },
   { id: 'flux-pro', label: 'flux-pro', hint: 'BFL', provider: 'bfl', caps: ['t2i'] },

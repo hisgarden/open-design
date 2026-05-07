@@ -93,6 +93,23 @@ export interface Dict {
   'settings.rescanRunning': string;
   'settings.rescanSuccess': string;
   'settings.rescanFailed': string;
+  'settings.test': string;
+  'settings.testTitle': string;
+  'settings.testRunning': string;
+  'settings.testCancel': string;
+  'settings.testSuccessApi': string;
+  'settings.testSuccessCli': string;
+  'settings.testAuthFailed': string;
+  'settings.testForbidden': string;
+  'settings.testNotFoundModel': string;
+  'settings.testInvalidModelId': string;
+  'settings.testInvalidBaseUrl': string;
+  'settings.testRateLimited': string;
+  'settings.testUpstream': string;
+  'settings.testTimeout': string;
+  'settings.testAgentMissing': string;
+  'settings.testAgentSpawn': string;
+  'settings.testUnknown': string;
   'settings.noAgentsDetected': string;
   'settings.apiSection': string;
   'settings.quickFillProvider': string;
@@ -128,6 +145,10 @@ export interface Dict {
   'settings.modelPicker': string;
   'settings.reasoningPicker': string;
   'settings.modelPickerHint': string;
+  'settings.cliEnvTitle': string;
+  'settings.cliEnvHint': string;
+  'settings.cliEnvClaudeConfigDir': string;
+  'settings.cliEnvCodexHome': string;
   'settings.modelCustom': string;
   'settings.modelCustomLabel': string;
   'settings.modelCustomPlaceholder': string;
@@ -345,6 +366,8 @@ export interface Dict {
   'promptTemplates.openSource': string;
   'promptTemplates.openFullscreen': string;
   'promptTemplates.closeFullscreen': string;
+  'promptTemplates.allSources': string;
+  'promptTemplates.sourceFilterAria': string;
   'promptTemplates.retry': string;
 
   // Designs tab
@@ -392,6 +415,7 @@ export interface Dict {
   'examples.modePrototypeMobile': string;
   'examples.modeDeck': string;
   'examples.modeDocument': string;
+  'examples.modeOrbit': string;
   'examples.scenarioGeneral': string;
   'examples.scenarioEngineering': string;
   'examples.scenarioProduct': string;
@@ -552,6 +576,8 @@ export interface Dict {
 
   // Workspace / file viewer / design files panel
   'workspace.designFiles': string;
+  'workspace.focusMode': string;
+  'workspace.showChat': string;
   'workspace.closeTab': string;
   'workspace.deleteFileConfirm': string;
   'workspace.openFromDesignFiles': string;
@@ -658,6 +684,47 @@ export interface Dict {
   'fileViewer.comment': string;
   'fileViewer.edit': string;
   'fileViewer.draw': string;
+  'manualEdit.layers': string;
+  'manualEdit.editableCount': string;
+  'manualEdit.title': string;
+  'manualEdit.selectLayer': string;
+  'manualEdit.empty': string;
+  'manualEdit.noClass': string;
+  'manualEdit.tabsAria': string;
+  'manualEdit.tabContent': string;
+  'manualEdit.tabStyle': string;
+  'manualEdit.tabAttributes': string;
+  'manualEdit.tabHtml': string;
+  'manualEdit.tabSource': string;
+  'manualEdit.attributesJson': string;
+  'manualEdit.selectedHtml': string;
+  'manualEdit.fullSource': string;
+  'manualEdit.applyContent': string;
+  'manualEdit.applyStyle': string;
+  'manualEdit.applyAttributes': string;
+  'manualEdit.applyHtml': string;
+  'manualEdit.applySource': string;
+  'manualEdit.invalidAttributes': string;
+  'manualEdit.changes': string;
+  'manualEdit.undo': string;
+  'manualEdit.redo': string;
+  'manualEdit.noChanges': string;
+  'manualEdit.imageUrl': string;
+  'manualEdit.altText': string;
+  'manualEdit.label': string;
+  'manualEdit.text': string;
+  'manualEdit.href': string;
+  'manualEdit.textColor': string;
+  'manualEdit.background': string;
+  'manualEdit.fontSize': string;
+  'manualEdit.weight': string;
+  'manualEdit.align': string;
+  'manualEdit.padding': string;
+  'manualEdit.margin': string;
+  'manualEdit.radius': string;
+  'manualEdit.border': string;
+  'manualEdit.width': string;
+  'manualEdit.minHeight': string;
   'fileViewer.zoomOut': string;
   'fileViewer.zoomIn': string;
   'fileViewer.resetZoom': string;

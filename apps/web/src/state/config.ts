@@ -7,6 +7,7 @@ import type {
   NotificationsConfig,
   PetConfig,
 } from '../types';
+import { normalizeAccentColor } from './appearance';
 import {
   DEFAULT_FAILURE_SOUND_ID,
   DEFAULT_SUCCESS_SOUND_ID,
@@ -61,6 +62,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   mediaProviders: {},
   composio: {},
   agentModels: {},
+  agentCliEnv: {},
   pet: DEFAULT_PET,
   notifications: DEFAULT_NOTIFICATIONS,
 };
@@ -235,6 +237,8 @@ export function loadConfig(): AppConfig {
       mediaProviders: { ...(parsed.mediaProviders ?? {}) },
       composio: { ...(parsed.composio ?? {}) },
       agentModels: { ...(parsed.agentModels ?? {}) },
+      agentCliEnv: { ...(parsed.agentCliEnv ?? {}) },
+      accentColor: normalizeAccentColor(parsed.accentColor) ?? DEFAULT_CONFIG.accentColor,
       pet: normalizePet(parsed.pet),
       notifications: normalizeNotifications(parsed.notifications),
     };
@@ -310,6 +314,41 @@ export function saveConfig(config: AppConfig): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
 }
 
+export function mergeDaemonConfig(
+  localConfig: AppConfig,
+  daemonConfig: AppConfigPrefs | null,
+): AppConfig {
+  const next = { ...localConfig };
+  if (!daemonConfig) return next;
+
+  if (daemonConfig.onboardingCompleted != null) {
+    next.onboardingCompleted = daemonConfig.onboardingCompleted;
+  }
+  if (daemonConfig.agentId !== undefined) {
+    next.agentId = daemonConfig.agentId;
+  }
+  if (daemonConfig.skillId !== undefined) {
+    next.skillId = daemonConfig.skillId;
+  }
+  if (daemonConfig.designSystemId !== undefined) {
+    next.designSystemId = daemonConfig.designSystemId;
+  }
+  if (daemonConfig.agentModels) {
+    next.agentModels = {
+      ...(next.agentModels ?? {}),
+      ...daemonConfig.agentModels,
+    };
+  }
+  next.agentCliEnv = daemonConfig.agentCliEnv ?? {};
+  if (daemonConfig.disabledSkills !== undefined) {
+    next.disabledSkills = daemonConfig.disabledSkills;
+  }
+  if (daemonConfig.disabledDesignSystems !== undefined) {
+    next.disabledDesignSystems = daemonConfig.disabledDesignSystems;
+  }
+  return next;
+}
+
 export function hasAnyConfiguredProvider(
   providers: Record<string, MediaProviderCredentials> | undefined,
 ): boolean {
@@ -351,6 +390,7 @@ export async function syncConfigToDaemon(config: AppConfig): Promise<void> {
     onboardingCompleted: config.onboardingCompleted,
     agentId: config.agentId,
     agentModels: config.agentModels,
+    agentCliEnv: config.agentCliEnv,
     skillId: config.skillId,
     designSystemId: config.designSystemId,
     disabledSkills: config.disabledSkills,
