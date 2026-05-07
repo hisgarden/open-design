@@ -1,7 +1,7 @@
 ---
 title: "Plan — Merge upstream/main into docs/beam-design-daemon-spec"
 date: 2026-05-06
-status: in_progress
+status: completed
 ---
 
 # Objective
@@ -32,22 +32,22 @@ during the merge.
 
 - [x] Fetch upstream + origin, audit divergence, summarise to user.
 - [x] Run `git merge upstream/main --no-edit`, accept conflicts surfaced.
-- [ ] Resolve `apps/daemon/src/media-models.ts` — keep both DeepInfra
+- [x] Resolve `apps/daemon/src/media-models.ts` — keep both DeepInfra
   block (HEAD) and Nano Banana entry (upstream).
-- [ ] Resolve `apps/daemon/src/media.ts` — read all 4 hunks; keep
+- [x] Resolve `apps/daemon/src/media.ts` — read all 4 hunks; keep
   DeepInfra provider routing AND nanobanana provider routing.
-- [ ] Resolve `apps/web/src/media/models.ts` — symmetric to media-models.
-- [ ] Resolve `apps/web/src/components/NewProjectPanel.tsx` — small hunk,
+- [x] Resolve `apps/web/src/media/models.ts` — symmetric to media-models.
+- [x] Resolve `apps/web/src/components/NewProjectPanel.tsx` — small hunk,
   inspect and reconcile.
-- [ ] Run `pnpm install` (workspace-shape may have shifted; new packages
+- [x] Run `pnpm install` (workspace-shape may have shifted; new packages
   added upstream).
-- [ ] Run `pnpm guard` and `pnpm typecheck`.
-- [ ] Run package-scoped tests for `@open-design/daemon` and
+- [x] Run `pnpm guard` and `pnpm typecheck`.
+- [x] Run package-scoped tests for `@open-design/daemon` and
   `@open-design/web` to validate the resolved files.
-- [ ] Spot-check BEAM-specific files (apps/web/sidecar/beam-bridge.ts,
+- [x] Spot-check BEAM-specific files (apps/web/sidecar/beam-bridge.ts,
   apps/beam-daemon/**) were not touched by upstream — sanity only.
-- [ ] Commit the merge (no `Co-authored-by` — repo policy).
-- [ ] Report final status: ahead/behind, test results, any deferred work.
+- [x] Commit the merge (no `Co-authored-by` — repo policy).
+- [x] Report final status: ahead/behind, test results, any deferred work.
 
 ## Expected outcome
 
